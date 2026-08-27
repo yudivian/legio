@@ -1,0 +1,47 @@
+# AGENTS.md — Working rules for implementing agents
+
+This file is the operational contract for every coding agent that works on
+`legio`. Read it fully before doing anything. It is the "pauta de guía" for
+implementing agents.
+
+## Non-negotiable rules
+
+1. **English only.** All code, identifiers, comments, docstrings, documentation
+   and commit messages are written entirely in English. Repo content is
+   self-contained in English.
+2. **Semantic-informative naming.** Every name carries its meaning:
+   - Functions/verbs, classes/nouns, booleans read as predicates.
+   - Prefer explicit over clever/abbreviated. No `x`, `tmp`, `foo`.
+3. **Journal every turn.** After every working session, append a journal entry
+   under `docs/JOURNALS/` reporting: what was done (per issue), decisions taken,
+   tests run/passed, known issues, and next steps. Before starting any work,
+   read the latest journal entry — it is how development resumes.
+4. **Build and test what you do.** No code change ships without tests that run
+   and pass in CI (`ruff`, tests, typecheck). "Done" always includes green tests.
+5. **Plan → specs → implementation.** Work follows the issues in
+   `docs/PLAN.md`. Implementation of an issue requires its spec to be approved
+   first (contract-first, TDD).
+6. **Dependency discipline.** Only the dependencies listed in
+   `docs/DEPENDENCIES.md` (once approved) may be used. Never add, upgrade or
+   guess a dependency without explicit approval. `uv` manages the environment.
+7. **Domain-free library.** `legio` must never know about any consumer domain
+   (voice audio, images, CRM, ETL...). It only sees: patterns (YAML as data)
+   and the injected tool registry. No domain code inside this repo.
+8. **Polling only.** The public API never emits callbacks or push events.
+   Nothing sleeps; scheduling is a field (`next_run_at`).
+9. **Errors are never silent.** Failures are visible in boards and in the task
+   result; exhausted attempts go to a DLQ. Never swallow exceptions.
+10. **Before coding, read** `docs/ARCHITECTURE.md`, `docs/CONTRIBUTING.md`,
+    the relevant section of `docs/PLAN.md`, and the latest journal.
+
+## Definition of done (per issue)
+
+- Contract tests written first (red), implementation then (green).
+- Change verified against the corresponding validation case.
+- No regressions: full test suite + lint + typecheck pass.
+- Journal updated. Docs updated if a contract or API changed.
+
+## Journaling template
+
+Use `docs/JOURNALS/0000-TEMPLATE.md`. Filename: `docs/JOURNALS/<YYYY>-<MM>-<DD>.md`,
+append chronologically to the same day file when working multiple turns a day.
