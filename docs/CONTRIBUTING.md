@@ -3,11 +3,34 @@
 This document is the methodology for building `legio`. Complement to
 `AGENTS.md` (operational rules) and `docs/PLAN.md` (issues).
 
+## 0. The unit of work is a GitHub issue
+
+Every GitHub issue in the repo (LEG-xxx) comes from `docs/PLAN.md`. Development
+is done **one issue at a time**, strictly in this order:
+
+1. **Spec first.** No implementation starts without the issue's spec, written
+   in `docs/CONTRACTS/LEG-xxx-*.md` and approved. The GitHub issue links to its
+   spec file (field "Spec"). R-1 (LEG-010..017) are the contracts that the rest
+   of the issues reference.
+2. **Implement the issue.** Contract tests first (red), implementation second
+   (green), against the issue's acceptance criteria.
+3. **Validate.** The issue's validation case is green (no real network/LLM).
+4. **Review + approve.** The maintainer reviews; after approval the issue is
+   closed **by the maintainer only** — never by the implementation, never by CI.
+   The closing comment records the checks that were run.
+5. **Journal.** Every session appends to `docs/JOURNALS/`.
+
+The issue is the source of truth for its own status: it points to its spec, its
+PR, and (when closed) the verification that was run.
+
 ## 1. Model: vertical slices with dogfooding
 
 Each increment = **one capability of `legio` + the real validation case that
-exercises it** (first consumer: `voicinha`, in its own repository). Hard rule:
+exercises it** (an independent consumer in its own repository, kept separate).
+Hard rule:
 *a feature is not closed if there is no real case in green exercising it.*
+`legio` itself never ships consumer material — only in-repo fictitious-domain
+examples. Consumer names, patterns and data never enter this repository.
 
 Work order per rasante: write contracts/specs → agree them → implement →
 validate → journal.
@@ -23,10 +46,10 @@ validate → journal.
 ## 3. Validation and dogfooding
 
 - Inside `legio`, the **examples are tests** (they must not bitrot): a minimal
-  fictitious domain exercising each rasante without depending on `voicinha`.
-- `voicinha` depends on `legio` in editable mode during development; each
-  `legio` release ships with semver and a `voicinha` case in green pinned to
-  that exact version.
+  fictitious domain exercising each rasante without depending on any consumer.
+- A consumer repository depends on `legio` in editable mode during
+  development; each `legio` release ships with semver and that consumer's
+  validation case in green pinned to the exact version.
 - "Done" for a rasante: written contract + contract tests + implementation +
   validation cases green + docs.
 

@@ -3,7 +3,9 @@
 Process: **plan with issues → specs (approved) → implementation**. Every issue
 below carries an explicit, testable acceptance criterion (marked **Accept**).
 An issue is *done* only when its criterion is demonstrably met by a running
-check (test, command, or CI job) — not by eyeballing.
+check (test, command, or CI job) — not by eyeballing. Each issue has its spec
+in `docs/CONTRACTS/LEG-xxx-*.md`, and the GitHub issue links to that file. The
+GitHub issues in this repo mirror this document one-to-one (labels R-0..R-10).
 
 Read `docs/ARCHITECTURE.md` for the design these issues implement, and
 `docs/CONTRIBUTING.md` for the methodology (contract-first TDD, dogfooding,
@@ -16,8 +18,8 @@ vertical slices).
 `R-8` Runtime → `R-9` Federation → `R-10` Hardening & release.
 
 Per-rasante definition of done: written contract + contract tests + implementation
-+ validation case green (voicinha or the in-repo fictitious domain) + docs +
-journal entry.
++ validation case green (an external consumer repo or the in-repo fictitious
+domain) + docs + journal entry.
 
 ## Issues
 
@@ -45,14 +47,15 @@ every contract issue: spec approved (journal) and its contract tests exist and
 are red for the yet-unimplemented surface.
 
 - **LEG-010** Patterns YAML schema (v1): pattern kinds, stages, schemas,
-  `input_mapping`, `output_as`, `main` flag. Incorporates the single-node
-  validation findings (H1–H4 from `docs/VALIDATIONS/voice-notes-single-node.md`):
+  `input_mapping`, `output_as`, `main` flag. Incorporates the single-node model
+  validation findings (H1–H4 from
+  `docs/VALIDATIONS/single-node-model.md`):
   inline stages (parallel auto-named, linguistic self-executed), dotted
   template paths + system variables (H2), flat-union merge + cumulative
   sequence (H3), schema compilation with unions/recursion (H4).
-  - **Accept**: a fixture translating two real voice-notes patterns into
-    schema-valid YAML v1 loads and validates; a prompt with
-    `{input.transcription}`, `{outline_data.outline}`, `{current_date}` fills
+  - **Accept**: a fixture translating two representative composite patterns
+    into schema-valid YAML v1 loads and validates; a prompt with
+    `{input.payload}`, `{substep.data}`, `{current_date}` fills
     from the scoped board.
 - **LEG-011** FlowToken & messages (v1): fields, semantics, `schema_version`,
   root handling, delivery.
@@ -106,9 +109,8 @@ are red for the yet-unimplemented surface.
 - **LEG-025** Worker: single replica running one agent.
   - **Accept**: `legio worker --agent <name>` processes a deposited message to
     completion; observable state changes in boards.
-- **LEG-026** E2E example: `transcribe` with a fake transcription tool
-  (domain-free).
-  - **Accept**: submitting `transcribe` through the API yields a transcription
+- **LEG-026** E2E example: `transform` with a fake tool (domain-free).
+  - **Accept**: submitting `transform` through the API yields its output
     in `results:{task_id}`; example is a green test (does not bitrot).
 - **LEG-027** Auth middleware (v1): single middleware enforcing the
   LEG-017 endpoint→token map for the API surface.
@@ -138,7 +140,7 @@ are red for the yet-unimplemented surface.
   - **Accept**: two occurrences of the same child pattern in one DAG are
     distinct tasks (dedupe by path, not agent name); merge is flat-union;
     collisions resolved by `output_as`.
-- **LEG-043** Examples `summarize_audio` (sequence) and `podcast_to_social`
+- **LEG-043** Examples `extract_and_summarize` (sequence) and `distribute_summary`
   (parallel), domain-free.
   - **Accept**: both are green tests exercising real composite flows.
 
@@ -234,10 +236,10 @@ are red for the yet-unimplemented surface.
 - **LEG-101** semver `0.1` + packaging + changelog + tags.
   - **Accept**: `uv build` produces a wheel/archive; `git tag v0.1.0` exists;
     changelog lists every merged issue.
-- **LEG-102** `voicinha` consuming the published `legio` (pin), validation
-  suite green.
-  - **Accept**: voicinha pins the released version; its validation suite runs
-    green against it in its own repo.
+- **LEG-102** An external consumer (own repo) pins the released `legio`, its
+  validation suite green.
+  - **Accept**: the consumer repo pins the released version; its validation
+    suite runs green against it.
 
 ## Ordering constraints
 

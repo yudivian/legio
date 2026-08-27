@@ -18,15 +18,19 @@ implementing agents.
    read the latest journal entry — it is how development resumes.
 4. **Build and test what you do.** No code change ships without tests that run
    and pass in CI (`ruff`, tests, typecheck). "Done" always includes green tests.
-5. **Plan → specs → implementation.** Work follows the issues in
-   `docs/PLAN.md`. Implementation of an issue requires its spec to be approved
-   first (contract-first, TDD).
+5. **Plan → specs → implementation; work is per issue.** Work follows the
+   issues in `docs/PLAN.md`; each GitHub issue carries its spec (linked in the
+   issue body, file under `docs/CONTRACTS/LEG-xxx-*.md`). Implementation of an
+   issue requires its spec to be approved first (contract-first, TDD). The
+   main branch advances one issue at a time; only the maintainer closes an
+   issue, after approval.
 6. **Dependency discipline.** Only the dependencies listed in
    `docs/DEPENDENCIES.md` (once approved) may be used. Never add, upgrade or
    guess a dependency without explicit approval. `uv` manages the environment.
 7. **Domain-free library.** `legio` must never know about any consumer domain
-   (voice audio, images, CRM, ETL...). It only sees: patterns (YAML as data)
-   and the injected tool registry. No domain code inside this repo.
+   (audio, images, CRM, ETL...). It only sees: patterns (YAML as data)
+   and the injected tool registry. No consumer code, names or data inside this
+   repo — not even as examples or validation material.
 8. **Polling only.** The public API never emits callbacks or push events.
    Nothing sleeps; scheduling is a field (`next_run_at`).
 9. **Errors are never silent.** Failures are visible in boards and in the task

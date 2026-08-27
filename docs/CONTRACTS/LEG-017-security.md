@@ -41,8 +41,8 @@ level never grants the other.
   ```yaml
   api:
     clients:
-      voicinha-mobile: { token: <t1>, agents: [idea, to_do] }  # restricted
-      invoice-bot:     { token: <t2> }                         # all, by default
+      consumer-a: { token: <t1>, agents: [flow_a, flow_b] }  # restricted
+      consumer-b: { token: <t2> }                            # all, by default
   ```
 - **Task ownership**: the mini-manager tags every task with the `client_id`
   derived from the presenting token; `status`/results return only tasks of that

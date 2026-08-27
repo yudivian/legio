@@ -185,8 +185,8 @@ mini-manager API (`submit`/`status`) requires a client token;
 ```yaml
 api:
   clients:
-    voicinha-mobile: { token: <t1>, agents: [idea, to_do] }  # restricted
-    invoice-bot:     { token: <t2> }                         # all by default
+    consumer-a: { token: <t1>, agents: [flow_a, flow_b] }  # restricted
+    consumer-b: { token: <t2> }                           # all by default
 ```
 
 - **Default granularity**: a client token without a restriction may access all

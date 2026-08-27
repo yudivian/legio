@@ -2,10 +2,8 @@
 
 A board-and-queue agentic orchestration engine. Independent library, domain-free:
 all domain knowledge lives in patterns (YAML) and a tool registry provided by the
-consumer.
-
-`voicinha` — the voice-notes successor — is the first consumer and validation
-target of this library. The two live in separate repositories.
+consumer. The library never knows about any specific consumer; validation happens
+through in-repo examples and external consumer repositories kept separate.
 
 ## Repo layout
 
