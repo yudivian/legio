@@ -1,0 +1,41 @@
+# LEG-025 — Worker (REST server)
+
+- **Status:** DRAFT (awaiting maintainer approval)
+- **Rasante:** R-2
+- **GitHub issue:** #17
+- **Source:** `docs/PLAN.md` (LEG-025)
+- **Depends on:** LEG-014, LEG-024
+
+## Goal
+Expose `submit` / `status` over REST (FastAPI) so a node is usable by client
+systems, with ownership-aware status.
+
+## Scope
+- **In scope:** `POST /submit`, `GET /status/{task_id}`, ownership checks.
+- **Out of scope:** auth middleware (LEG-027) — endpoints exist behind the
+  later guard; federation endpoints (R-9).
+
+## Contract & design
+- Endpoints call mini-manager; `status` refuses access to a task owned by
+  another client (LEG-014/017 semantics).
+- HTTP mapping per LEG-016 error taxonomy (4xx/5xx with `code`).
+
+## Interface
+- `POST /submit {client_id, agent, payload}` → `{task_id}`;
+  `GET /status/{task_id}?client_id=` → task state + result.
+
+## Acceptance criteria
+From `docs/PLAN.md` (LEG-025), verbatim:
+- `submit` creates a task and `status` returns it with final result; a
+  foreign-client status request is denied.
+
+## Tests
+- REST contract tests (respx/httpx), ownership denial case.
+
+## Validation case
+- E2E via HTTP in green (LEG-026).
+
+## Definition of done
+- All acceptance criteria met by running checks.
+- Maintainer approval recorded; the maintainer closes the GitHub issue.
+- Journal entry appended.
