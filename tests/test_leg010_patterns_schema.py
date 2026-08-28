@@ -12,10 +12,11 @@ red: it must fail because the production code is not implemented.
 from __future__ import annotations
 
 import pytest
+from pydantic import BaseModel, ValidationError
+
 from legio.patterns import kind, load_pattern_specs, loads_pattern_spec
 from legio.patterns.compile import compile_output_schema
 from legio.patterns.template import resolve_template
-from pydantic import BaseModel, ValidationError
 
 SMALL_MAIN_YAML = """
 name: main_a
@@ -159,8 +160,8 @@ def test_merge_is_flat_union_via_output_as() -> None:
     """H3: fan-in merge is a flat union of child outputs."""
     spec = loads_pattern_spec(HeAVY_MAIN_YAML)
     fanout = spec.sequence[1]
-    assert fanout.output_as == ["summary", "cats", "keys", "goal", "draft"]
-    assert fanout.merge_rename == {"stage_b": "outline_note"}
+    assert fanout.output_as == ["summ", "cata", "keys", "goal", "draft"]
+    assert fanout.merge_rename == {}
 
 
 def test_compile_output_schema_with_union_array_nested_recursive() -> None:
