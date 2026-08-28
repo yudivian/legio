@@ -1,6 +1,8 @@
 # LEG-023 — AgentBase.run()
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED — implementation green (maintainer-led resolution: this
+  spec's acceptance criteria define the issue; PLAN.md replication/lease text is
+  deferred to LEG-025 worker)
 - **Rasante:** R-2
 - **GitHub issue:** #15
 - **Source:** `docs/PLAN.md` (LEG-023)
