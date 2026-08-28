@@ -6,34 +6,44 @@ ownership enforced (LEG-014/017 semantics). The API is *polling-only*: a client
 creates a task and later polls ``status``; there are no callbacks. HTTP error
 mapping follows the LEG-016 taxonomy (4xx/5xx with a stable ``code``).
 
-Auth middleware is LEG-027 (out of scope here); these endpoints are the surface
-a later guard sits in front of.
+``create_app`` is auth-ready (LEG-027): when a ``ClientTokenStore`` is provided,
+``submit``/``status`` are guarded per the LEG-017 two-level token model — a valid
+client token is required (401 otherwise), a restricted token may only hit its
+listed starting agents (403 otherwise), and ``status`` is readable only by the
+token that owns the task. Without a store the app is open (``client_id`` comes
+from the request) for embedded/unauthenticated contexts.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Header, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from legio import manager
 from legio.flow import FlowToken
 from legio.manager import TaskEntry, TaskState
+from legio.security import ClientTokenStore
 
 logger = logging.getLogger(__name__)
+
+_BEARER = re.compile(r"^Bearer\s+(.+)$")
 
 
 class SubmitRequest(BaseModel):
     """Body of ``POST /submit``.
 
     ``agent`` is the *starting agent* (an entry point of the node, ARCH §6);
-    ``payload`` is the client payload the synthetic parent stages.
+    ``payload`` is the client payload the synthetic parent stages. ``client_id``
+    is only used in open (unauthenticated) mode; when a store guards the app the
+    client is derived from the presented token.
     """
 
-    client_id: str = Field(min_length=1)
+    client_id: str | None = Field(default=None, min_length=1)
     agent: str = Field(min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -62,25 +72,73 @@ def _to_status_response(entry: TaskEntry) -> StatusResponse:
     )
 
 
-def create_app() -> FastAPI:
-    """Build the FastAPI application exposing the mini-manager over REST."""
+def _bearer_token(authorization: str | None) -> str | None:
+    """Extract the bearer token from an ``Authorization`` header, if any."""
+    if not authorization:
+        return None
+    match = _BEARER.match(authorization)
+    return match.group(1) if match else None
+
+
+def _unauthorized() -> JSONResponse:
+    return JSONResponse(status_code=401, content={"code": "unauthorized"})
+
+
+def _forbidden() -> JSONResponse:
+    return JSONResponse(status_code=403, content={"code": "forbidden"})
+
+
+def create_app(clients: ClientTokenStore | None = None) -> FastAPI:
+    """Build the FastAPI application exposing the mini-manager over REST.
+
+    When ``clients`` is given, ``submit``/``status`` require a valid client
+    token (LEG-027); otherwise the app is open and ``client_id`` comes from the
+    request body/query.
+    """
     app = FastAPI(title="legio", version="0.1.0")
 
     @app.post("/submit", response_model=SubmitResponse)
-    async def submit(body: SubmitRequest) -> SubmitResponse:
-        task_id = await manager.submit(body.client_id, body.agent, body.payload)
-        logger.info("api submit task=%s client=%s agent=%s", task_id, body.client_id, body.agent)
+    async def submit(
+        body: SubmitRequest,
+        authorization: str | None = Header(default=None),
+    ) -> SubmitResponse | JSONResponse:
+        if clients is not None:
+            token = _bearer_token(authorization)
+            consumer_id = clients.resolve_consumer_id(token) if token else None
+            if consumer_id is None:
+                logger.warning("api submit unauthorized agent=%s", body.agent)
+                return _unauthorized()
+            if not clients.allowed_starting_agent(consumer_id, body.agent):
+                logger.warning("api submit forbidden agent=%s client=%s", body.agent, consumer_id)
+                return _forbidden()
+            client_id = consumer_id
+        else:
+            client_id = body.client_id or "default"
+
+        task_id = await manager.submit(client_id, body.agent, body.payload)
+        logger.info("api submit task=%s client=%s agent=%s", task_id, client_id, body.agent)
         return SubmitResponse(task_id=task_id)
 
     @app.get("/status/{task_id}", response_model=StatusResponse)
     async def status(
         task_id: str,
+        authorization: str | None = Header(default=None),
         client_id: str | None = Query(default=None),
     ) -> StatusResponse | JSONResponse:
+        if clients is not None:
+            token = _bearer_token(authorization)
+            consumer_id = clients.resolve_consumer_id(token) if token else None
+            if consumer_id is None:
+                logger.warning("api status unauthorized task=%s", task_id)
+                return _unauthorized()
+            resolved_client = consumer_id
+        else:
+            resolved_client = client_id
+
         try:
-            entry = await manager.status(task_id, client_id)
+            entry = await manager.status(task_id, resolved_client)
         except PermissionError:
-            logger.warning("api status denied task=%s client=%s", task_id, client_id)
+            logger.warning("api status denied task=%s client=%s", task_id, resolved_client)
             return JSONResponse(status_code=403, content={"code": "access_denied"})
         except KeyError:
             logger.warning("api status unknown task=%s", task_id)
