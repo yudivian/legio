@@ -67,6 +67,11 @@ class AgentBase:
         self._retry_guard = retry_guard
         self._monitor = monitor
 
+    @property
+    def agent_id(self) -> str:
+        """The agent's stable identity (its queue/namespace name)."""
+        return self._agent_id
+
     async def run(self, *, max_steps: int = 100) -> int:
         """Poll the queue until idle or ``max_steps`` reached; return steps done.
 

@@ -45,6 +45,12 @@ implementing agents.
     crashes). legio never configures the root logger — consumers own logging
     config via `legio.logging.configure()`. Logging is added *with the
     implementation*, not retrofitted afterwards.
+12. **Implement to the design, then re-verify.** Before coding an issue, anchor
+    to the designed specs and `docs/ARCHITECTURE.md` — do not improvise new
+    behavior. After implementing each spec/issue, re-audit the shipped code
+    against the designed architecture and its contract before marking it done;
+    deviations must be fixed or explicitly documented as debt. This prevents
+    regressing the decoupled/polling model (see the Session 7 audit).
 
 ## Definition of done (per issue)
 

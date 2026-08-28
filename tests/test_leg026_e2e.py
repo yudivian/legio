@@ -1,0 +1,108 @@
+"""LEG-026 — End-to-end example: ``transform`` with a fake, domain-free tool.
+
+First real single-node capability over the REST surface. A client submits to the
+``transform`` agent through the API; a ``Worker`` replica (LEG-025) polls the
+agent's queue and runs the registered fake tool; the root result lands in
+``results:{task_id}`` (LEG-053) and the client reads it back via ``status``.
+Boundary is the REST surface; all substrate is shared in-process (one beaver,
+one manager) as on a single node.
+"""
+
+from __future__ import annotations
+
+import logging
+
+import httpx
+import pytest
+from pydantic import BaseModel
+
+from legio.agents.tool_agent import ToolAgent
+from legio.api import create_app
+from legio.manager import agent_queue, client_queue, reset_manager, results_board
+from legio.primitives.inmemory import BoardInMemory
+from legio.tools import ToolRegistry
+from legio.worker import Worker
+
+
+class TransformInput(BaseModel):
+    text: str
+    factor: int = 2
+
+
+class TransformOutput(BaseModel):
+    transformed: str
+
+
+class FakeTransformTool:
+    @property
+    def input_schema(self) -> type[BaseModel]:
+        return TransformInput
+
+    @property
+    def output_schema(self) -> type[BaseModel]:
+        return TransformOutput
+
+    def __call__(self, **kwargs: object) -> dict:
+        return {"transformed": str(kwargs["text"]).upper()}
+
+
+@pytest.fixture(autouse=True)
+def reset_substrate() -> None:
+    reset_manager()
+
+
+async def build_transform_worker(task_id: str) -> Worker:
+    registry = ToolRegistry()
+    registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
+    return Worker(
+        ToolAgent(
+            agent_id="transform",
+            registry=registry,
+            tool_type="transform",
+            queue=agent_queue("transform"),
+            board=BoardInMemory("frames"),
+            queues={
+                "transform": agent_queue("transform"),
+                f"client:{task_id}": client_queue(task_id),
+            },
+            results_board=await results_board(),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_transform_e2e_over_rest_and_worker(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/submit",
+            json={
+                "client_id": "client-a",
+                "agent": "transform",
+                "payload": {"text": "hello", "factor": 3},
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        task_id = resp.json()["task_id"]
+
+        worker = await build_transform_worker(task_id)
+        processed = await worker.process_once()
+        assert processed == 1
+
+        st = await ac.get(f"/status/{task_id}", params={"client_id": "client-a"})
+        assert st.status_code == 200, st.text
+        entry = st.json()
+        assert entry["state"] == "completed"
+        assert entry["output"] == {"transformed": "HELLO"}
+        assert entry["result_key"] == f"results:{task_id}"
+
+        board = await results_board()
+        assert await board.get(task_id) == {"output": {"transformed": "HELLO"}}
+
+        log_text = caplog.text
+        assert "manager submit" in log_text
+        assert "agent run" in log_text
+        assert "worker process" in log_text
+        assert "agent root result" in log_text
