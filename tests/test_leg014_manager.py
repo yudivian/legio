@@ -82,7 +82,7 @@ def test_client_pseudo_agent_names_its_own_queue() -> None:
 async def test_termination_request_marks_state_client_terminated() -> None:
     task_id = await submit("client-a", "flow_alpha", {"raw": 1})
 
-    ClientPseudoAgent(task_id=task_id).handle_termination_request()
+    await ClientPseudoAgent(task_id=task_id).handle_termination_request()
 
     entry = await status(task_id, "client-a")
     assert entry.state is TaskState.CLIENT_TERMINATED

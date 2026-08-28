@@ -24,9 +24,9 @@ class ClientPseudoAgent:
         self.task_id = task_id
         self.agent_id = f"client:{task_id}"
 
-    def handle_termination_request(self) -> None:
+    async def handle_termination_request(self) -> None:
         """Mark the owning task as cleanly client-terminated."""
-        set_task_state(self.task_id, TaskState.CLIENT_TERMINATED)
+        await set_task_state(self.task_id, TaskState.CLIENT_TERMINATED)
         logger.info("client pseudo-agent terminated task=%s", self.task_id)
 
     async def drain(self) -> list[Mapping[str, Any]]:

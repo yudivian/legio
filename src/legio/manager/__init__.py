@@ -19,12 +19,13 @@ from typing import Any
 from pydantic import BaseModel
 
 from legio.flow import ExecutionRequestMessage, FlowToken
-from legio.primitives import Board
+from legio.primitives import Board, board_key
 from legio.primitives.inmemory import BoardInMemory, QueueInMemory
 
 logger = logging.getLogger(__name__)
 
 _RESULTS_SCOPE = "results"
+_TASKS_SCOPE = "tasks"
 
 
 class TaskState(str, Enum):
@@ -51,7 +52,6 @@ def _new_substrate() -> dict[str, Any]:
     return {
         "queues": {},
         "boards": {},
-        "tasks": {},
         "counter": count(1),
     }
 
@@ -65,8 +65,14 @@ def reset_manager() -> None:
     _SUBSTRATE = _new_substrate()
 
 
-def _tasks() -> dict[str, Any]:
-    return _SUBSTRATE["tasks"]
+def tasks_board() -> BoardInMemory:
+    """Return the mini-manager's ``tasks`` board (ARCH §2: ``tasks`` scope).
+
+    The mini-manager stores task state on a board, not in process memory —
+    "everything is a board" (ARCH §7.7, §13). State is readable/pollable from
+    any replica; nothing lives in a dict handle.
+    """
+    return _boards().setdefault(_TASKS_SCOPE, BoardInMemory(_TASKS_SCOPE))
 
 
 def _queues() -> dict[str, QueueInMemory]:
@@ -113,12 +119,15 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
         root=True,
         task_id=task_id,
     )
-    _tasks()[task_id] = {
-        "owner": client_id,
-        "state": TaskState.PENDING,
-        "token": token.model_dump(mode="json"),
-        "payload": payload,
-    }
+    await tasks_board().set(
+        task_id,
+        {
+            "owner": client_id,
+            "state": TaskState.PENDING,
+            "token": token.model_dump(mode="json"),
+            "payload": payload,
+        },
+    )
     _ensure_client_queue(task_id)
 
     request = ExecutionRequestMessage(
@@ -141,7 +150,7 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
 
 async def status(task_id: str, client_id: str | None) -> TaskEntry:
     """Return the task entry if ``client_id`` owns it, else raise."""
-    data = _tasks().get(task_id)
+    data = await tasks_board().get(task_id)
     if data is None:
         logger.warning("manager status unknown task=%s", task_id)
         raise KeyError(f"unknown task {task_id!r}")
@@ -180,10 +189,14 @@ def client_queue(task_id: str) -> QueueInMemory:
     return _queues()[f"client:{task_id}"]
 
 
-def set_task_state(task_id: str, state: TaskState) -> None:
-    data = _tasks().get(task_id)
-    if data is not None:
-        data["state"] = state
+async def set_task_state(task_id: str, state: TaskState) -> None:
+    """Update a task's lifecycle state on the ``tasks`` board."""
+    board = tasks_board()
+    data = await board.get(task_id)
+    if data is None:
+        return
+    data["state"] = state
+    await board.set(task_id, data)
 
 
 class Reaper:
@@ -192,11 +205,18 @@ class Reaper:
     async def reap_clients(self) -> list[str]:
         """Return the task_ids whose client queues were force-terminated."""
         cancelled: list[str] = []
-        for task_id, data in list(_tasks().items()):
-            if data["state"] == TaskState.CLIENT_TERMINATED:
+        board = tasks_board()
+        prefix = f"{board_key(_TASKS_SCOPE, '')}"
+        for namespaced in board.stored_keys():
+            if not namespaced.startswith(prefix):
+                continue
+            task_id = namespaced[len(prefix) :]
+            data = await board.get(task_id)
+            if data is None or data["state"] == TaskState.CLIENT_TERMINATED:
                 continue
             cancelled.append(task_id)
             data["state"] = TaskState.CLIENT_TERMINATED
+            await board.set(task_id, data)
         if cancelled:
             logger.info("manager reaper cancelled client tasks=%s", ",".join(cancelled))
         return cancelled
@@ -213,4 +233,5 @@ __all__ = [
     "set_task_state",
     "status",
     "submit",
+    "tasks_board",
 ]
