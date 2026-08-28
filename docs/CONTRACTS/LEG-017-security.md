@@ -1,8 +1,8 @@
 # LEG-017 — Security contract (v1)
 
-Status: **APPROVED (contract tests red)**. Applies to R-8 (runtime server) and R-9
-(federation). Implemented by a single auth middleware on the node's HTTP
-surface.
+Status: **CLOSED (implementation green, maintainer approved, issue closed)**.
+Applies to R-8 (runtime server) and R-9 (federation). Implemented by a single
+auth middleware on the node's HTTP surface.
 
 ## 1. Principle
 

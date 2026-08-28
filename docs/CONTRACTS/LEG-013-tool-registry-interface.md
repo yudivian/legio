@@ -1,6 +1,6 @@
 # LEG-013 — Tool registry interface (v1)
 
-- **Status:** APPROVED (contract tests red)
+- **Status:** CLOSED (implementation green, maintainer approved, issue closed)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #7
 - **Source:** `docs/PLAN.md` (LEG-013)

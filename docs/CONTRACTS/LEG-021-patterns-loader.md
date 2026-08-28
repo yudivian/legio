@@ -1,6 +1,6 @@
 # LEG-021 — Patterns loader
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** CLOSED (implementation green, maintainer approved, issue closed)
 - **Rasante:** R-2
 - **GitHub issue:** #13
 - **Source:** `docs/PLAN.md` (LEG-021)

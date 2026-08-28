@@ -1,6 +1,6 @@
 # LEG-020 — Primitives over beaver (implementation)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** CLOSED (implementation green, maintainer approved, issue closed)
 - **Rasante:** R-2
 - **GitHub issue:** #12
 - **Source:** `docs/PLAN.md` (LEG-020)

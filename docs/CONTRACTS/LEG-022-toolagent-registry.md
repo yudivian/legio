@@ -1,6 +1,6 @@
 # LEG-022 — ToolAgent + tool registry (implementation)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** CLOSED (implementation green, maintainer approved, issue closed)
 - **Rasante:** R-2
 - **GitHub issue:** #14
 - **Source:** `docs/PLAN.md` (LEG-022)
