@@ -13,6 +13,7 @@ so a ``LeaseHandle.lock`` can be handed to code that expects the contract.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -29,6 +30,8 @@ from legio.primitives import (
     board_key,
     queue_key,
 )
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL: dict[str, Any] | None = None
 
@@ -133,23 +136,35 @@ class BeaverQueue(Queue):
 
     async def push(self, item: Mapping[str, Any], *, priority: float = 0.0) -> None:
         await self._queue.put(dict(item), priority=-priority)
+        logger.debug(
+            "queue push agent=%s item=%s priority=%s", self._agent_id, self._item_id(item), priority
+        )
 
     async def lease(self, lease_ttl: float) -> LeaseHandle | None:
         while True:
             item = await self._try_take_due()
             if item is None:
+                logger.debug("queue lease idle agent=%s", self._agent_id)
                 return None
             item_id = self._item_id(item)
             beaver_lock = self._db.lock(f"{self._name}:{item_id}", lock_ttl=lease_ttl, timeout=0.0)
             lock = BeaverLock(beaver_lock, lock_ttl=lease_ttl)
             held = await lock.acquire_async(timeout=0.0, lock_ttl=lease_ttl)
             if held:
+                logger.info(
+                    "queue lease acquired agent=%s item=%s ttl=%s",
+                    self._agent_id,
+                    item_id,
+                    lease_ttl,
+                )
                 return _LeaseHandle(item, lock)
+            logger.debug("queue lease contention agent=%s item=%s", self._agent_id, item_id)
             await self._queue.put(dict(item), priority=-self._effective_priority(item))
 
     async def ack(self, handle: LeaseHandle) -> None:
         if isinstance(handle.lock, BeaverLock):
             await handle.lock.release_async()
+        logger.debug("queue ack agent=%s item=%s", self._agent_id, self._item_id(handle.item))
 
     async def pop(self) -> Mapping[str, Any] | None:
         return await self._try_take_due()
@@ -209,6 +224,7 @@ class BeaverBoard(Board):
     async def set(self, key: str, value: Any) -> None:
         await self._dict.set(key, value, ttl_seconds=self._ttl_seconds)
         self._raw_keys.add(key)
+        logger.debug("board set scope=%s key=%s", self._scope, key)
 
     async def update(self, key: str, value: Any) -> None:
         current = await self.get(key, default={})
@@ -219,6 +235,7 @@ class BeaverBoard(Board):
         else:
             await self._dict.set(key, value, ttl_seconds=self._ttl_seconds)
         self._raw_keys.add(key)
+        logger.debug("board update scope=%s key=%s", self._scope, key)
 
     def stored_keys(self) -> list[str]:
         return [board_key(self._scope, key) for key in sorted(self._raw_keys)]

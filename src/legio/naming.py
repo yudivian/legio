@@ -7,9 +7,12 @@ agents.
 
 from __future__ import annotations
 
+import logging
 import re
 
 from legio.errors import InvalidNameError
+
+logger = logging.getLogger(__name__)
 
 _NODE_RE = re.compile(r"^[^@]+@[^@]+$")
 _AGENT_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -21,6 +24,7 @@ _RESERVED_AGENT_PREFIX = "client:"
 
 def _guard(valid: bool, name: str) -> None:
     if not valid:
+        logger.warning("invalid identifier %r rejected", name)
         raise InvalidNameError(f"invalid identifier {name!r}")
 
 

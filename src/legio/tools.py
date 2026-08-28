@@ -8,9 +8,12 @@ at worker startup.
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -43,12 +46,14 @@ class ToolRegistry:
         self._tools[tool_type] = tool
         self._input_schemas[tool_type] = input_schema
         self._output_schemas[tool_type] = output_schema
+        logger.info("tool registered type=%s", tool_type)
 
     def resolve(self, tool_type: str) -> Tool:
         """Return the registered tool instance for ``tool_type``."""
         try:
             return self._tools[tool_type]
         except KeyError:
+            logger.warning("tool not found type=%s", tool_type)
             raise KeyError(f"no tool registered for tool_type {tool_type!r}") from None
 
     def schemas(self, tool_type: str) -> tuple[type[BaseModel], type[BaseModel]]:

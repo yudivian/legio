@@ -8,10 +8,13 @@ accept only a registered client token. Pluggable: any subtype keeps the same
 
 from __future__ import annotations
 
+import logging
 import re
 from enum import Enum
 
 from legio.security import ClientTokenStore
+
+logger = logging.getLogger(__name__)
 
 _METHOD_PREFIX = re.compile(r"^(GET|POST|PUT|PATCH|DELETE)\s")
 
@@ -50,6 +53,24 @@ class AuthMiddleware:
         peer_id: str | None = None,
     ) -> AuthorizationResult:
         """Authorize an endpoint against a token, optionally a peer origin."""
+        result = self._decide(endpoint, token, peer_id)
+        if result not in (AuthorizationResult.ALLOWED, AuthorizationResult.ALLOWED_FEDERATION):
+            logger.warning(
+                "auth denied endpoint=%s token=%r peer=%s result=%s",
+                endpoint,
+                bool(token),
+                peer_id,
+                result.value,
+            )
+        return result
+
+    def _decide(
+        self,
+        endpoint: str,
+        token: str | None,
+        peer_id: str | None,
+    ) -> AuthorizationResult:
+        """Compute the authorization outcome without side effects."""
         if not token:
             return AuthorizationResult.UNAUTHORIZED_401
 

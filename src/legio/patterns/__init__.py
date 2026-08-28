@@ -8,11 +8,14 @@ a catalog. Compilation of ``output_schema`` lives in ``legio.patterns.compile``
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class kind(str, Enum):
@@ -187,6 +190,7 @@ def _load(data: Any, *, multiple: bool) -> PatternSpec | list[PatternSpec]:
         for s in spec.parallel:
             _materialize(s, spec.name, spec.main)
         parsed.append(spec)
+        logger.info("pattern loaded name=%s kind=%s main=%s", spec.name, spec.kind, spec.main)
 
     if not multiple:
         if parsed:

@@ -11,6 +11,7 @@ stuck client queue is force-terminated).
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from itertools import count
 from typing import Any
@@ -20,6 +21,8 @@ from pydantic import BaseModel
 from legio.flow import FlowToken
 from legio.primitives import Board
 from legio.primitives.inmemory import BoardInMemory, QueueInMemory
+
+logger = logging.getLogger(__name__)
 
 _RESULTS_SCOPE = "results"
 
@@ -101,6 +104,12 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
         "payload": payload,
     }
     _ensure_client_queue(task_id)
+    logger.info(
+        "manager submit task=%s owner=%s starting_agent=%s",
+        task_id,
+        client_id,
+        starting_agent,
+    )
     return task_id
 
 
@@ -108,8 +117,15 @@ async def status(task_id: str, client_id: str | None) -> TaskEntry:
     """Return the task entry if ``client_id`` owns it, else raise."""
     data = _tasks().get(task_id)
     if data is None:
+        logger.warning("manager status unknown task=%s", task_id)
         raise KeyError(f"unknown task {task_id!r}")
     if data["owner"] != client_id:
+        logger.warning(
+            "manager status denied task=%s owner=%s requester=%s",
+            task_id,
+            data["owner"],
+            client_id,
+        )
         raise PermissionError("task is scoped to its owning client")
     result_board = _boards().get(_RESULTS_SCOPE)
     stored = await result_board.get(task_id) if result_board else None
@@ -152,6 +168,8 @@ class Reaper:
                 continue
             cancelled.append(task_id)
             data["state"] = TaskState.CLIENT_TERMINATED
+        if cancelled:
+            logger.info("manager reaper cancelled client tasks=%s", ",".join(cancelled))
         return cancelled
 
 

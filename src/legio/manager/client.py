@@ -8,10 +8,13 @@ it never executes domain logic.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
 from legio.manager import TaskState, client_queue, set_task_state
+
+logger = logging.getLogger(__name__)
 
 
 class ClientPseudoAgent:
@@ -24,6 +27,7 @@ class ClientPseudoAgent:
     def handle_termination_request(self) -> None:
         """Mark the owning task as cleanly client-terminated."""
         set_task_state(self.task_id, TaskState.CLIENT_TERMINATED)
+        logger.info("client pseudo-agent terminated task=%s", self.task_id)
 
     async def drain(self) -> list[Mapping[str, Any]]:
         """Remove and return every message left on the client queue."""

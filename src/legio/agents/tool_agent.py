@@ -14,12 +14,15 @@ deposited instead (see AGENTS.md rule 9).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import cast
 
 from legio.flow import ExecutionRequestMessage, ExecutionResultMessage
 from legio.primitives import Board, Queue
 from legio.tools import Tool, ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class ToolAgent:
@@ -57,13 +60,29 @@ class ToolAgent:
         ttl = lease_ttl or self._lease_ttl
         handle = await self._queue.lease(ttl)
         if handle is None:
+            logger.debug("tool agent idle agent=%s", self._agent_id)
             return False
 
         try:
             request = ExecutionRequestMessage.model_validate(dict(handle.item))
+            logger.info(
+                "tool agent run agent=%s task=%s tool=%s step=%s",
+                self._agent_id,
+                request.task_id,
+                self._tool_type,
+                request.current_index,
+            )
             await self._execute(request)
+        except Exception:
+            logger.exception(
+                "tool agent crashed agent=%s task=%s",
+                self._agent_id,
+                handle.item.get("task_id", "?"),
+            )
+            raise
         finally:
             await self._queue.ack(handle)
+        logger.debug("tool agent done agent=%s", self._agent_id)
         return True
 
     async def _execute(self, request: ExecutionRequestMessage) -> None:
@@ -74,10 +93,17 @@ class ToolAgent:
         try:
             raw_input = frame.get("input", request.payload.get("input", {}))
             validated_input = self._input_schema.model_validate(raw_input)
+            logger.debug("tool input ok agent=%s task=%s", self._agent_id, request.task_id)
             callable_tool = cast(Callable[..., object], self._tool)
             raw_output = callable_tool(**validated_input.model_dump())
             validated_output = self._output_schema.model_validate(raw_output)
         except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
+            logger.warning(
+                "tool schema failure agent=%s task=%s error=%s",
+                self._agent_id,
+                request.task_id,
+                f"{type(exc).__name__}: {exc}",
+            )
             error = f"{type(exc).__name__}: {exc}"
             validated_output = None
 
@@ -91,6 +117,12 @@ class ToolAgent:
         await self._deposit_result(request, validated_output.model_dump())
 
     async def _deposit_result(self, request: ExecutionRequestMessage, output: dict) -> None:
+        logger.info(
+            "tool result deposited agent=%s task=%s to=%s",
+            self._agent_id,
+            request.task_id,
+            request.ultimate_return_agent_id,
+        )
         result = ExecutionResultMessage(
             route_pattern_names=request.route_pattern_names,
             current_index=request.current_index,

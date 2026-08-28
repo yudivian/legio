@@ -9,8 +9,11 @@ author's outbox is written before ack and read/acked explicitly.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 class FederationError(Exception):
@@ -131,21 +134,41 @@ async def submit_work_item(
 ) -> WorkItemReceipt:
     """Deposit a work item onto a peer, validating interface and deduping."""
     if peer_id not in author.peers:
+        logger.warning("fed submit unknown peer author=%s peer=%s", author.node_id, peer_id)
         raise UnknownPeerError(f"peer {peer_id!r} is not known to {author.node_id!r}")
 
     peer_catalog = author._peer_catalogs.get(peer_id)
     if peer_catalog is not None:
         advertised = peer_catalog.get(agent)
         if advertised is None or advertised.schema_version != interface.schema_version:
+            logger.warning(
+                "fed interface mismatch author=%s peer=%s agent=%s want=%s have=%s",
+                author.node_id,
+                peer_id,
+                agent,
+                interface.schema_version,
+                advertised.schema_version if advertised else None,
+            )
             raise InterfaceMismatchError(
                 f"interface for {agent!r} does not match peer {peer_id!r} catalog"
             )
 
     acceptor = _NODES.get(peer_id)
     if acceptor is None:
+        logger.warning("fed acceptor unreachable peer=%s item=%s", peer_id, task_id)
         return WorkItemReceipt(id=task_id, deposited=False)
 
     deposited = acceptor._accept_work(WorkItem(id=task_id, agent=agent, payload=payload))
+    if deposited:
+        logger.info(
+            "fed work deposited author=%s -> peer=%s agent=%s item=%s",
+            author.node_id,
+            peer_id,
+            agent,
+            task_id,
+        )
+    else:
+        logger.debug("fed work deduplicated peer=%s agent=%s item=%s", peer_id, agent, task_id)
     return WorkItemReceipt(id=task_id, deposited=deposited, deduplicated=not deposited)
 
 
