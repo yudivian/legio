@@ -1,0 +1,78 @@
+"""`legio.security` — the two-level token scheme (LEG-017).
+
+One shared federation token guards node-to-node endpoints; per-system client
+tokens guard client submit/status endpoints. Both are consumed by a single
+`AuthMiddleware` that enforces the endpoint → token map.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass
+class ClientToken:
+    """A per-system client token.
+
+    ``agents`` optionally restricts which starting agents the token may submit;
+    ``None`` (default) means all agents.
+    """
+
+    consumer_id: str
+    token: str
+    agents: list[str] | None = None
+
+
+class ClientTokenStore:
+    """Registers, checks, restricts and revokes client tokens."""
+
+    def __init__(self) -> None:
+        self._tokens: dict[str, ClientToken] = {}
+
+    def register(
+        self,
+        consumer_id: str,
+        *,
+        token: str,
+        agents: list[str] | None = None,
+    ) -> ClientToken:
+        """Register (or re-register) a consumer's token."""
+        registered = ClientToken(consumer_id=consumer_id, token=token, agents=agents)
+        self._tokens[consumer_id] = registered
+        return registered
+
+    def revoke(self, consumer_id: str) -> None:
+        """Immediately invalidate a consumer's token."""
+        self._tokens.pop(consumer_id, None)
+
+    def is_valid(self, consumer_id: str, token: str) -> bool:
+        stored = self._tokens.get(consumer_id)
+        return stored is not None and stored.token == token
+
+    def resolve_consumer_id(self, token: str) -> str | None:
+        """Return the consumer id holding ``token``, or ``None`` if unknown."""
+        for registered in self._tokens.values():
+            if registered.token == token:
+                return registered.consumer_id
+        return None
+
+    def allowed_starting_agent(self, consumer_id: str, agent: str) -> bool:
+        stored = self._tokens.get(consumer_id)
+        if stored is None:
+            return False
+        if stored.agents is None:
+            return True
+        return agent in stored.agents
+
+
+class FederationTokenStore:
+    """Validates a single shared federation secret (standalone store)."""
+
+    def __init__(self, shared_token: str) -> None:
+        self._shared_token = shared_token
+
+    def is_valid(self, token: str) -> bool:
+        return token == self._shared_token
+
+
+__all__ = ["ClientToken", "ClientTokenStore", "FederationTokenStore"]
