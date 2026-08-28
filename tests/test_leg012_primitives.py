@@ -20,6 +20,7 @@ from time import monotonic
 from typing import Any
 
 import pytest
+
 from legio.primitives import (
     BOARD_NAMESPACE,
     QUEUE_NAMESPACE,
@@ -105,7 +106,6 @@ class QueueInMemory:
         if not due_entries:
             return None
         chosen = max(due_entries, key=lambda entry: entry.priority)
-        self._entries.remove(chosen)
         chosen.lock = LockInMemory(ttl=lease_ttl)
         return LeaseHandleInMemory(chosen)
 
