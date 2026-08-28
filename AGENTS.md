@@ -37,13 +37,24 @@ implementing agents.
    result; exhausted attempts go to a DLQ. Never swallow exceptions.
 10. **Before coding, read** `docs/ARCHITECTURE.md`, `docs/CONTRIBUTING.md`,
     the relevant section of `docs/PLAN.md`, and the latest journal.
+11. **Log every observable event.** legio is a concurrent, decoupled engine; it
+    must be observable at runtime. Every module provisions its own logger
+    (`logging.getLogger(__name__)`, under the `legio.*` tree) and emits
+    structured `key=value` events (INFO on decisions/deposits, DEBUG on step
+    detail, WARNING on failures/rejections/denials, `logger.exception` on
+    crashes). legio never configures the root logger — consumers own logging
+    config via `legio.logging.configure()`. Logging is added *with the
+    implementation*, not retrofitted afterwards.
 
 ## Definition of done (per issue)
 
 - Contract tests written first (red), implementation then (green).
 - Change verified against the corresponding validation case.
+- Module logging is in place at every observable lifecycle point (rule 11),
+  shipped *with* the implementation, not retrofitted.
 - No regressions: full test suite + lint + typecheck pass.
-- Journal updated. Docs updated if a contract or API changed.
+- Journal updated (reporting logging events added). Docs updated if a contract
+  or API changed.
 
 ## Journaling template
 

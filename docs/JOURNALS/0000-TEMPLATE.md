@@ -14,6 +14,11 @@ Issues/rasante worked on (e.g. LEG-020..LEG-023, R-2). Goal of the session.
 - **LEG-0xx**: what was built/changed; key decisions.
 - ...
 
+## Logging added
+- List the logging events emitted with this change (module, level, what they
+  cover); per rule 11 logging ships *with* the implementation, not retrofitted.
+  If no new events were needed, say so explicitly.
+
 ## Tests run
 - What was executed (`ruff`, `pytest`, typecheck) and results.
 - Which validation case exercises this work (passed?).
