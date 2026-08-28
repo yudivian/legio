@@ -41,6 +41,7 @@ class ToolAgent(AgentBase):
         queues: Mapping[str, Queue],
         frames_scope: str = "frames",
         lease_ttl: float = 60.0,
+        results_board: Board | None = None,
     ) -> None:
         super().__init__(
             agent_id=agent_id,
@@ -49,6 +50,7 @@ class ToolAgent(AgentBase):
             queues=queues,
             frames_scope=frames_scope,
             lease_ttl=lease_ttl,
+            results_board=results_board,
         )
         self._registry = registry
         self._tool_type = tool_type
@@ -82,7 +84,11 @@ class ToolAgent(AgentBase):
 
         output = validated_output.model_dump()
         await self._store_out(request, "out", output)
-        await self._finish(request, output)
+        is_last = request.current_index >= len(request.route_pattern_names) - 1
+        if is_last:
+            await self._finish(request, output)
+        else:
+            await self._advance(request, output=output)
 
 
 __all__ = ["ToolAgent"]

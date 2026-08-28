@@ -51,11 +51,7 @@ class FinalAgent(AgentBase):
 
 
 class ChainAgent(AgentBase):
-    """One link of a chain: advance to ``next_agent_id`` unless last in route."""
-
-    def __init__(self, *, next_agent_id: str, **kwargs: object) -> None:
-        self._next_agent_id = next_agent_id
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+    """One link of a chain: advance to the next DAG agent unless last in route."""
 
     async def _handle(self, request: ExecutionRequestMessage) -> None:
         incoming = request.payload.get("input", {})
@@ -65,7 +61,7 @@ class ChainAgent(AgentBase):
         if is_last:
             await self._finish(request, output)
         else:
-            await self._advance(request, next_agent_id=self._next_agent_id, output=output)
+            await self._advance(request, output=output)
 
 
 class FailingAgent(AgentBase):
@@ -132,9 +128,8 @@ async def test_two_step_task_runs_both_steps_and_returns() -> None:
         ChainAgent,
         agent_id="main",
         queues=queues,
-        next_agent_id="step",
     )
-    second = build(ChainAgent, agent_id="step", queues=queues, next_agent_id="client")
+    second = build(ChainAgent, agent_id="step", queues=queues)
     route = ("main", "step")
     await main_q.push(
         make_request(task_id="T-two", current_index=0, route=route).model_dump(mode="json")

@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from legio.flow import FlowToken
+from legio.flow import ExecutionRequestMessage, FlowToken
 from legio.primitives import Board
 from legio.primitives.inmemory import BoardInMemory, QueueInMemory
 
@@ -86,8 +86,24 @@ def _ensure_client_queue(task_id: str) -> None:
     _queues().setdefault(agent_id, QueueInMemory(agent_id=agent_id))
 
 
+def agent_queue(agent_id: str) -> QueueInMemory:
+    """Return (registering if needed) the queue for an arbitrary agent.
+
+    This is how the synthetic parent reaches a starting agent's queue: the
+    manager does not know the agent, it only needs the namespaced queue so a
+    worker can poll it (ARCH §7.1, polling-only).
+    """
+    return _queues().setdefault(agent_id, QueueInMemory(agent_id=agent_id))
+
+
 async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -> str:
-    """Submit a task; returns its ``task_id``."""
+    """Submit a task; returns its ``task_id``.
+
+    The synthetic parent (ARCH §6) stages the inputs on the blackboard and
+    deposits the first ``ExecutionRequestMessage`` (the root step) into the
+    starting agent's queue. From there the flow is fully decoupled: workers poll
+    the agent queues and route by the DAG in the token.
+    """
     task_id = f"T-{next_counter()}"
     token = FlowToken(
         route_pattern_names=(starting_agent,),
@@ -104,6 +120,16 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
         "payload": payload,
     }
     _ensure_client_queue(task_id)
+
+    request = ExecutionRequestMessage(
+        route_pattern_names=(starting_agent,),
+        current_index=0,
+        ultimate_return_agent_id=f"client:{task_id}",
+        origin_node_id=starting_agent,
+        task_id=task_id,
+        payload={"input": payload},
+    )
+    await agent_queue(starting_agent).push(request.model_dump(mode="json"))
     logger.info(
         "manager submit task=%s owner=%s starting_agent=%s",
         task_id,
@@ -130,11 +156,14 @@ async def status(task_id: str, client_id: str | None) -> TaskEntry:
     result_board = _boards().get(_RESULTS_SCOPE)
     stored = await result_board.get(task_id) if result_board else None
     output = stored.get("output") if isinstance(stored, dict) else None
+    state = TaskState(data["state"])
+    if stored is not None:
+        state = TaskState.COMPLETED
     return TaskEntry(
         task_id=task_id,
         owner=data["owner"],
         token=FlowToken.model_validate(data["token"]),
-        state=TaskState(data["state"]),
+        state=state,
         output=output,
         result_key=f"results:{task_id}" if stored is not None else None,
     )
@@ -177,6 +206,7 @@ __all__ = [
     "Reaper",
     "TaskEntry",
     "TaskState",
+    "agent_queue",
     "client_queue",
     "reset_manager",
     "results_board",

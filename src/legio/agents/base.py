@@ -20,6 +20,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from legio.errors import UnrecoverableError
 from legio.flow import ExecutionRequestMessage, ExecutionResultMessage
 from legio.primitives import Board, LeaseHandle, Queue
 
@@ -46,6 +47,7 @@ class AgentBase:
         queues: Mapping[str, Queue],
         frames_scope: str = "frames",
         lease_ttl: float = 60.0,
+        results_board: Board | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._queue = queue
@@ -53,6 +55,7 @@ class AgentBase:
         self._queues = queues
         self._frames_scope = frames_scope
         self._lease_ttl = lease_ttl
+        self._results_board = results_board
         self._retry_guard: RetryGuard | None = None
         self._monitor: Monitor | None = None
         self._attempts: dict[str, int] = {}
@@ -95,6 +98,7 @@ class AgentBase:
                 request.current_index,
             )
             self._attempts[request.task_id] = self._attempts.get(request.task_id, 0) + 1
+            await self._heartbeat(handle)
             await self._emit(_EVENT_START, request)
             await self._run_guarded(request, handle)
         except Exception:
@@ -167,23 +171,39 @@ class AgentBase:
         frame[key] = output
         await self._board.update(f"{self._agent_id}:{request.task_id}", frame)
 
-    async def _advance(
-        self,
-        request: ExecutionRequestMessage,
-        *,
-        next_agent_id: str,
-        output: dict[str, Any],
-    ) -> None:
-        """Route the outcome to the next stage as an execution request."""
+    async def _heartbeat(self, handle: LeaseHandle) -> None:
+        """Renew the item's lease so a live replica keeps it out of reaper.
+
+        Polling-only (AGENTS.md rule 8): there is no sleep; the renewal happens
+        on each item we pick up, keeping the lease alive for the duration of the
+        step. Continuous in-work heartbeating is R-6 (resilience).
+        """
+        handle.lock.renew(self._lease_ttl)
+        logger.debug("agent heartbeat agent=%s", self._agent_id)
+
+    async def _advance(self, request: ExecutionRequestMessage, *, output: dict[str, Any]) -> None:
+        """Route the outcome to the next agent in the DAG carried by the token.
+
+        The next queue is derived from the token itself — the CPS continuation
+        (``route_pattern_names[current_index + 1]``) — never from caller-owned
+        knowledge (ARCHITECTURE §0/§3). There is no central engine; the agent
+        decides only from its message and the token.
+        """
+        next_index = request.current_index + 1
+        names = request.route_pattern_names
+        if next_index >= len(names):
+            raise UnrecoverableError(f"agent {self._agent_id} advanced beyond the end of its DAG")
+        next_agent_id = names[next_index]
         logger.info(
-            "agent advance agent=%s task=%s to=%s",
+            "agent advance agent=%s task=%s to=%s index=%s",
             self._agent_id,
             request.task_id,
             next_agent_id,
+            next_index,
         )
         next_request = ExecutionRequestMessage(
             route_pattern_names=request.route_pattern_names,
-            current_index=request.current_index + 1,
+            current_index=next_index,
             ultimate_return_agent_id=request.ultimate_return_agent_id,
             origin_node_id=request.origin_node_id,
             task_id=request.task_id,
@@ -192,7 +212,13 @@ class AgentBase:
         await self._deliver(next_agent_id, next_request.model_dump(mode="json"))
 
     async def _finish(self, request: ExecutionRequestMessage, output: dict[str, Any]) -> None:
-        """Deposit an ExecutionResultMessage to the parent or client."""
+        """Deposit the ExecutionResultMessage to the return agent.
+
+        For a root task (``ultimate_return_agent_id == client:{task_id}``) the
+        result is additionally written to ``results:{task_id}`` so the client
+        reads it back via ``status`` (ARCH §6/§7.6, LEG-050). Deliveries are at
+        least-once; exactly-once ack is R-5 (LEG-050).
+        """
         logger.info(
             "agent finish agent=%s task=%s to=%s",
             self._agent_id,
@@ -208,6 +234,12 @@ class AgentBase:
             output=output,
         )
         await self._deliver(request.ultimate_return_agent_id, result.model_dump(mode="json"))
+        if (
+            request.ultimate_return_agent_id.startswith("client:")
+            and self._results_board is not None
+        ):
+            await self._results_board.set(request.task_id, {"output": output})
+            logger.info("agent root result agent=%s task=%s", self._agent_id, request.task_id)
 
     async def _deliver(self, target_agent_id: str, item: dict[str, Any]) -> None:
         target = self._queues.get(target_agent_id)

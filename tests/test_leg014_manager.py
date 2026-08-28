@@ -47,6 +47,7 @@ async def test_root_result_lands_in_results_board_readable_via_status() -> None:
     entry = await status(task_id, "client-a")
     assert entry.output == {"raw": 1, "kind": "ok"}
     assert entry.result_key == f"results:{task_id}"
+    assert entry.state is TaskState.COMPLETED
 
 
 @pytest.mark.asyncio
