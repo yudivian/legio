@@ -16,5 +16,17 @@ through in-repo examples and external consumer repositories kept separate.
 
 ## State
 
-R-0 (Foundation) in progress: dependency list approved, governance reviewed and
-frozen, package bootstrap and CI in place. Contract specs (R-1) come next.
+R-2 (walking skeleton) in progress. Shipped:
+
+- R-0 (Foundation): governance frozen, package bootstrap, CI — **done**.
+- R-1 (Contracts v1): specs approved with red contract tests for LEG-010..017 —
+  **shipped**.
+- R-2 (Walking skeleton): substrate primitives over beaver / in-memory
+  (LEG-012/020), flow messages + token (LEG-011), tool registry (LEG-013),
+  patterns loader + output schema (LEG-010/021), ToolAgent (LEG-022), uniform
+  AgentBase.run loop (LEG-023), mini-manager + client pseudo-agent (LEG-014),
+  federation + naming + errors + security (LEG-015/016/017) — **implemented**.
+
+Remaining in R-2: LEG-025 worker (REST server) and LEG-026 E2E example. Then
+R-3 (atomics), R-4 (composites), R-5 (token), R-6 (resilience), R-7 (patterns
+engine), R-8 (runtime), R-9 (federation), R-10 (hardening & release).
