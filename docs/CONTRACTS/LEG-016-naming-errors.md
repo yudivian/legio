@@ -1,6 +1,6 @@
 # LEG-016 — Naming & errors (v1)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (contract tests red)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #10
 - **Source:** `docs/PLAN.md` (LEG-016)

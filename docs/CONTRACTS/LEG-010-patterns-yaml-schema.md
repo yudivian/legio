@@ -1,6 +1,6 @@
 # LEG-010 — Patterns YAML schema (v1)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (contract tests red)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #4
 - **Source:** `docs/PLAN.md` (LEG-010)

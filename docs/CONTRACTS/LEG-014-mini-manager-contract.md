@@ -1,6 +1,6 @@
 # LEG-014 — Mini-manager & client pseudo-agent contract (v1)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (contract tests red)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #8
 - **Source:** `docs/PLAN.md` (LEG-014)

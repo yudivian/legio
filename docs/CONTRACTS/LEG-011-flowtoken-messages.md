@@ -1,6 +1,6 @@
 # LEG-011 — FlowToken & messages (v1)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (contract tests red)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #5
 - **Source:** `docs/PLAN.md` (LEG-011)

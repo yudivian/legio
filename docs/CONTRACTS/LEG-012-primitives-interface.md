@@ -1,6 +1,6 @@
 # LEG-012 — Primitives interface (v1)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (contract tests red)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #6
 - **Source:** `docs/PLAN.md` (LEG-012)
