@@ -13,6 +13,8 @@ code is not implemented.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
+
 from legio.flow import (
     SCHEMA_VERSION,
     ExecutionRequestMessage,
@@ -20,7 +22,6 @@ from legio.flow import (
     FlowToken,
 )
 from legio.flow.messages import MessageType
-from pydantic import ValidationError
 
 
 def test_round_trip_preserves_all_fields() -> None:
@@ -137,7 +138,7 @@ def test_models_are_immutable() -> None:
     with pytest.raises(ValidationError):
         ExecutionResultMessage().output = {"changed": True}
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(AttributeError):
         FlowToken().route_pattern_names.append("extra")
 
 
