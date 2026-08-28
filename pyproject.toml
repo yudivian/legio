@@ -1,0 +1,40 @@
+[project]
+name = "legio"
+version = "0.1.0"
+description = "Board-and-queue agentic orchestration engine (domain-free library)."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "beaver-db",
+    "lingo-ai",
+    "pydantic>=2",
+    "pydantic-settings",
+    "pyyaml",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "pyright",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
