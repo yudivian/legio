@@ -62,6 +62,8 @@ are red for the yet-unimplemented surface.
   - **Accept**: serialization/deserialization round-trip preserves all fields;
   versioned, rejected on major mismatch; finality derived from position.
 - **LEG-012** Primitives interface (v1): Queue/Board/Lock API over beaver.
+  Superseded by the native-beaver substrate (LEG-048) — no `legio.primitives`
+  wrapper; beaver primitives are addressed directly (`docs/ARCHITECTURE.md` §2).
   - **Accept**: signature conformance tests against the contract; lease
     TTL/renew observable by test.
 - **LEG-013** Tool registry interface (v1): registration, schemas, lifecycle.
@@ -89,6 +91,10 @@ are red for the yet-unimplemented surface.
 ### R-2 — Walking skeleton
 
 - **LEG-020** Primitives over beaver (Queue/Board/Lock + lease semantics).
+  Superseded by the native-beaver substrate (LEG-048) — the wrapper
+  implementation was deleted; its behaviors (lease TTL + renew, `next_run_at`
+  priority, namespacing) are now exercised in the AgentBase/mini-manager suites
+  directly against beaver.
   - **Accept**: priority ordering, `next_run_at` retry scheduling, lease TTL +
     renew, and reclaim-after-expiry each have a passing integration test
     against a temp beaver file.
@@ -196,6 +202,11 @@ are red for the yet-unimplemented surface.
 
 ### R-8 — Runtime
 
+- **Agent lifecycle** (create / enable / disable / destroy at the Class and
+  Instance levels, including dynamic on-the-fly creation and the "disabled ⇒ no
+  instances / destroy class = armageddon" rules) is specified in
+  `docs/AGENT_LIFECYCLE.md`. This R-8 section is where it is implemented; LEG-080
+  (pools) realizes "multiple instances consume the same class queue".
 - **LEG-080** Pools (`pool_size` replicas per agent).
   - **Accept**: n replicas on the same queue process n items concurrently; each
     item leased exactly once; single-replica behavior unchanged.

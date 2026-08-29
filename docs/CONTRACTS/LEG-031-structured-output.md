@@ -1,6 +1,6 @@
 # LEG-031 — Structured output / template values
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (maintainer, 2026-08-28) — contract tests written first, implementation to follow
 - **Rasante:** R-3
 - **GitHub issue:** #21
 - **Source:** `docs/PLAN.md` (LEG-031)

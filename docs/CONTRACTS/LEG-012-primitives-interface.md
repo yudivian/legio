@@ -1,10 +1,19 @@
 # LEG-012 — Primitives interface (v1)
 
-- **Status:** CLOSED (implementation green, maintainer approved, issue closed)
+- **Status:** SUPERSEDED (decision: *no invented substrate layer* — agents and
+  the mini-manager speak native beaver directly, LEG-048; `legio.primitives`
+  was deleted and its contract tests migrated to native-beaver suites)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #6
 - **Source:** `docs/PLAN.md` (LEG-012)
 - **Depends on:** ARCHITECTURE §2
+
+> **Superseded by** the native-beaver substrate (LEG-048): the three primitives
+> no longer wrap beaver behind a legio-owned interface. `beaver`'s own
+> persistent dicts/queues/locks are addressed directly (`db.dict(scope)`,
+> `db.queue("legio:queue:<agent>")`, `db.lock(...)`) — see
+> `docs/ARCHITECTURE.md` §2. The design intent below (lease as lock, `next_run_at`
+> field, no scheduler, scope model) still holds; the *wrapper API* does not.
 
 ## Goal
 Pin the interface of the three substrate primitives (Queue, Board, Lock) that

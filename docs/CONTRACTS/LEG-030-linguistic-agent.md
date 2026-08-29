@@ -1,6 +1,6 @@
 # LEG-030 — Linguistic agent via lingo
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (maintainer, 2026-08-28) — contract tests written first, implementation to follow
 - **Rasante:** R-3
 - **GitHub issue:** #20
 - **Source:** `docs/PLAN.md` (LEG-030)

@@ -29,22 +29,34 @@ Runtime           worker/crew · pools · reaper
 Agents            linguistic · tool · sequence · parallel  (+ base, registry)
 Flow              FlowToken (DAG + position + return) · call-frames
 Patterns          YAML → PatternSpec → pydantic models (compile-time)
-Primitives        queue · board · lock  (beaver, transparent)
+Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 ```
 
-## 2. Substrate (primitives)
+## 2. Substrate (beaver native, no invented wrapper)
 
-- **Queue** — persistent priority queue per agent; `push` / `lease` / `ack` /
-  `pop`; `next_run_at` schedules retries with no scheduler.
-- **Board** — persistent dict per scope: `blackboard:{node}:{task_id}`
-  (inputs/outputs), `frames:{agent}:{task_id}` (call-frames),
-  `semaphore`, `results:{task_id}`, `catalog`, `outbox`, `tasks` (state for the
-  mini-manager).
-- **Lock** — TTL + `renew`; it is the *task lease*. If a replica dies, the lease
-  expires and the item becomes reclaimable.
+`beaver` is the single substrate (see `docs/DEPENDENCIES.md`). legio speaks it
+**directly** — there is no `legio.primitives` abstraction layer (LEG-048): a
+`db = await manager.db()` handle is passed around, and agents/managers address
+beaver primitives by name, exactly as castor's Manager calls `db.dict` /
+`db.queue` / `db.lock` directly.
+
+- **Board** — beaver persistent dict per scope: `db.dict("frames")` (call-frames
+  `{agent}:{task_id}`), `db.dict("results")` (`{task_id}`), `db.dict("tasks")`
+  (mini-manager state). Future scopes: `blackboard:{node}:{task_id}`,
+  `semaphore`, `catalog`, `outbox`.
+- **Queue** — beaver persistent priority queue per agent:
+  `db.queue("legio:queue:<agent_id>")`; `get(block=False)` pops destructively and
+  raises `IndexError` when empty; `put(item, priority=...)` deposits;
+  `next_run_at` schedules retries with no scheduler.
+- **Lock** — beaver lock with TTL + `renew`; it is the *task lease* (keyed on
+  the queue item, released on ack). If a replica dies, the lease expires and the
+  item becomes reclaimable (at-least-once, R-6).
+- The **only** key namespace legio invents is the per-agent queue name
+  (`legio:queue:<agent>`, `legio.naming.queue_key`); boards are beaver dicts
+  addressed by scope name directly.
 - **Messages** — `ExecutionRequestMessage` (starts/deposits a step) and
-  `ExecutionResultMessage` (returns). The message type discriminates in the dual
-  queue.
+  `ExecutionResultMessage` (returns), always carried as queue item payloads
+  (`model_dump(mode="json")`).
 
 ## 3. FlowToken — the contract that moves everything
 
@@ -52,8 +64,12 @@ Fields: `route_pattern_names` (the concrete DAG of this leg), `current_index`
 (position), `ultimate_return_agent_id` (where to return), `origin_node_id`
 (author node), `root` (root marker), `task_id` (public).
 
-- **Who builds it**: the composite agent that starts a leg concretizes its DAG
-  and inserts it into the token. If it is the root, it sets `root=True` and
+- **Who builds it**: any starting agent (atomic or composite — §6) is invoked
+  through a root step deposited into its queue; the starting agent then
+  concretizes the **root token** for its leg. A **composite** starting agent
+  (sequence or parallel) inserts its sub-DAG into the token; an **atomic**
+  starting agent has no sub-DAG — its route reduces to itself and it advances
+  solely by position. If it is the root, it sets `root=True` and
   `ultimate_return_agent_id = client:{task_id}`.
 - **"Is it final?" is derived from position**, not from a flag: last step means
   delivery (internal: to the parent; root: to the client).
@@ -77,6 +93,13 @@ composite:
   identical for every agent.
 - Orchestration cannot tell a linguistic agent apart from a concrete one — only
   the internal resource differs.
+- **Lifecycle (create / enable / disable / destroy)** is governed at two levels:
+  the **class** (type + queue) by the catalog registry, and the **instance**
+  (replica) by the runtime supervisor. Disabling a class closes entry but keeps
+  draining pending work; no instances ⇒ class disabled; destroying the class is
+  armageddon (removes spec + queue + all instances). The lifecycle "god" governs
+  only existence, never the DAG or routing. See
+  `docs/AGENT_LIFECYCLE.md`.
 
 ## 5. The Tool
 
@@ -102,8 +125,10 @@ composite:
   a public entry point of the node. Any agent (atomic or composite) may be a
   starting agent.
 - **Starting agent**: its parent is the client. It receives work from the API,
-  which acts as a *synthetic parent* (stages inputs and builds the root token).
-  The only contract differences: `root=True` and
+  which acts as a *synthetic parent* (only stages inputs and deposits the root
+  step into the starting agent's queue — it never builds the DAG nor the root
+  token). The starting agent itself concretizes the root token (§3, §7.2). The
+  only contract differences: `root=True` and
   `ultimate_return_agent_id = client:{task_id}` — on completion it deposits into
   `results:{task_id}` instead of re-depositing to any agent.
 - **Capability**: only invoked by another agent through a queue deposit; returns

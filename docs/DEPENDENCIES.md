@@ -29,8 +29,21 @@ removed before a reviewed PR to this file. Managed with `uv`. Python runtime:
 
 ## Excluded on purpose
 
-- `castor-io`: outdated against current beaver; its role (worker/task
-  registry) is implemented in legio itself.
+- `castor-io`: outdated against current beaver; its role (the **TaskManager**)
+  is implemented in legio itself (see `docs/AGENT_LIFECYCLE.md`).
+- **Task-manager/worker libraries evaluated and rejected** (criteria: minimal,
+  no Redis/broker, isolated dependencies, and — critically — backed by **beaver**
+  as the substrate):
+  - `rq`, `celery`, `dramatiq`, `arq`, `taskiq`(redis): require Redis/broker.
+    Rejected.
+  - `procrastinate`: requires a PostgreSQL server — remote infra, not embedded.
+    Rejected.
+  - `huey`, `apscheduler`, `schedule`: embedded (sqlite / in-memory), but backed
+    by their **own** persistence, not by beaver — adopting one would introduce a
+    **second substrate** alongside beaver (duplicating persistence). Rejected.
+  - Conclusion: no pure-Python library both fulfills the criteria **and** sits on
+    beaver. legio implements its own `TaskManager` on beaver (single substrate,
+    no Redis, no extra dependencies).
 - Any broker, Redis, DB server, workflow engine, scheduler library, or
   callback/event library: all covered by beaver + the design's polling/field
   semantics.

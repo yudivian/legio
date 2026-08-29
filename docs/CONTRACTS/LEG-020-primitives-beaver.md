@@ -1,10 +1,19 @@
 # LEG-020 — Primitives over beaver (implementation)
 
-- **Status:** CLOSED (implementation green, maintainer approved, issue closed)
+- **Status:** SUPERSEDED (decision: *no invented substrate layer* — the
+  beaver-backed wrapper was deleted; agents and the mini-manager now call
+  beaver natively, LEG-048)
 - **Rasante:** R-2
 - **GitHub issue:** #12
 - **Source:** `docs/PLAN.md` (LEG-020)
 - **Depends on:** LEG-012 (interface), LEG-011 (message types)
+
+> **Superseded by** the native-beaver substrate (LEG-048): the "combustion" of
+> the three primitives *on top of* beaver is gone because beaver itself provides
+> them. The behaviors this spec pinned (lease TTL + `renew` as the task lease,
+> `next_run_at` scheduling via priority, namespacing, async-only) are now
+> exercised directly in the AgentBase/mini-manager suites against a real beaver
+> file (see `docs/ARCHITECTURE.md` §2 and `tests/conftest.py`).
 
 ## Goal
 Implement Queue, Board and Lock on top of beaver (Redis), satisfying the
