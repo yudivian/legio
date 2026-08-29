@@ -16,12 +16,11 @@ deposited instead (see AGENTS.md rule 9).
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
-from typing import cast
+from collections.abc import Callable
+from typing import Any, cast
 
 from legio.agents.base import AgentBase
 from legio.flow import ExecutionRequestMessage
-from legio.primitives import Board, Queue
 from legio.tools import Tool, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -34,23 +33,17 @@ class ToolAgent(AgentBase):
         self,
         *,
         agent_id: str,
+        db: Any,
         registry: ToolRegistry,
         tool_type: str,
-        queue: Queue,
-        board: Board,
-        queues: Mapping[str, Queue],
         frames_scope: str = "frames",
         lease_ttl: float = 60.0,
-        results_board: Board | None = None,
     ) -> None:
         super().__init__(
             agent_id=agent_id,
-            queue=queue,
-            board=board,
-            queues=queues,
+            db=db,
             frames_scope=frames_scope,
             lease_ttl=lease_ttl,
-            results_board=results_board,
         )
         self._registry = registry
         self._tool_type = tool_type

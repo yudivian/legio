@@ -30,14 +30,19 @@ class ClientPseudoAgent:
         logger.info("client pseudo-agent terminated task=%s", self.task_id)
 
     async def drain(self) -> list[Mapping[str, Any]]:
-        """Remove and return every message left on the client queue."""
+        """Remove and return every message left on the client queue.
+
+        The client queue is a native beaver queue: ``get(block=False)`` pops the
+        next item and raises ``IndexError`` when empty.
+        """
         queue = client_queue(self.task_id)
         items: list[Mapping[str, Any]] = []
         while True:
-            item = await queue.pop()
-            if item is None:
+            try:
+                item = await queue.get(block=False)
+            except IndexError:
                 return items
-            items.append(item)
+            items.append(item.data)
 
 
 __all__ = ["ClientPseudoAgent"]

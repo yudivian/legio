@@ -3,26 +3,20 @@
 The REST surface exposes ``POST /submit`` and ``GET /status/{task_id}`` that
 proxy the mini-manager, enforcing ownership (a foreign client's status request
 is denied). Uses the ASGI transport with an async client (httpx) to exercise the
-real FastAPI routes.
+real FastAPI routes. All substrate is native beaver (LEG-048), bound via the
+``beaver_db`` fixture.
 """
 
 from __future__ import annotations
 
 import httpx
 import pytest
+from beaver import AsyncBeaverDB
 from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
-from legio.manager import (
-    agent_queue,
-    client_queue,
-    reset_manager,
-    results_board,
-    status,
-    submit,
-)
-from legio.primitives.inmemory import BoardInMemory
+from legio.manager import status, submit
 from legio.tools import ToolRegistry
 from legio.worker import Worker
 
@@ -48,11 +42,6 @@ class FakeFlipTool:
         return {"flipped": str(kwargs["text"])[::-1]}
 
 
-@pytest.fixture(autouse=True)
-def reset_substrate() -> None:
-    reset_manager()
-
-
 @pytest.fixture
 async def client() -> httpx.AsyncClient:
     app = create_app()
@@ -62,7 +51,9 @@ async def client() -> httpx.AsyncClient:
 
 
 @pytest.mark.asyncio
-async def test_submit_creates_task_and_status_returns_it(client: httpx.AsyncClient) -> None:
+async def test_submit_creates_task_and_status_returns_it(
+    client: httpx.AsyncClient, beaver_db: AsyncBeaverDB
+) -> None:
     resp = await client.post(
         "/submit", json={"client_id": "client-a", "agent": "flow_alpha", "payload": {"raw": 1}}
     )
@@ -81,7 +72,9 @@ async def test_submit_creates_task_and_status_returns_it(client: httpx.AsyncClie
 
 
 @pytest.mark.asyncio
-async def test_status_denies_foreign_client(client: httpx.AsyncClient) -> None:
+async def test_status_denies_foreign_client(
+    client: httpx.AsyncClient, beaver_db: AsyncBeaverDB
+) -> None:
     resp = await client.post(
         "/submit", json={"client_id": "client-a", "agent": "flow_alpha", "payload": {"raw": 1}}
     )
@@ -96,35 +89,34 @@ async def test_status_denies_foreign_client(client: httpx.AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_status_unknown_task(client: httpx.AsyncClient) -> None:
+async def test_status_unknown_task(client: httpx.AsyncClient, beaver_db: AsyncBeaverDB) -> None:
     resp = await client.get("/status/T-nope", params={"client_id": "client-a"})
     assert resp.status_code == 404
     assert resp.json()["code"] == "unknown_task"
 
 
 @pytest.mark.asyncio
-async def test_submit_missing_fields_is_rejected(client: httpx.AsyncClient) -> None:
+async def test_submit_missing_fields_is_rejected(
+    client: httpx.AsyncClient, beaver_db: AsyncBeaverDB
+) -> None:
     resp = await client.post("/submit", json={"client_id": "client-a"})
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_worker_replica_deposits_deposited_message_to_completion() -> None:
+async def test_worker_replica_deposits_message_to_completion(
+    beaver_db: AsyncBeaverDB,
+) -> None:
     task_id = await submit("client-a", "flip", {"text": "abc"})
 
     registry = ToolRegistry()
     registry.register("flip", FakeFlipTool(), FlipInput, FlipOutput)
     agent = ToolAgent(
         agent_id="flip",
+        db=beaver_db,
         registry=registry,
         tool_type="flip",
-        queue=agent_queue("flip"),
-        board=BoardInMemory("frames"),
-        queues={
-            "flip": agent_queue("flip"),
-            f"client:{task_id}": client_queue(task_id),
-        },
-        results_board=await results_board(),
+        frames_scope="frames",
     )
     worker = Worker(agent)
 

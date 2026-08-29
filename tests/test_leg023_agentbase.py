@@ -1,20 +1,13 @@
-"""Red contract tests for LEG-023 — AgentBase.run() uniform loop.
+"""Contract tests for LEG-023 — AgentBase.run() uniform loop (over native beaver).
 
 The AgentBase is the generalized per-step runner every atomic agent and
-composite implements (LEG-023). Its ``run()`` leases a work item, dispatches it
-to the step's job (a subclass ``_handle``), applies the ``retry_guard`` /
-``monitor`` hooks, and routes the outcome: advance to the next stage as an
+composite implements (LEG-023). Its ``run()`` pops a work item from its native
+beaver queue, takes a native beaver lock as the lease, dispatches it to the
+step's job (a subclass ``_handle``), applies the ``retry_guard`` / ``monitor``
+hooks, and routes the outcome: advance to the next stage as an
 ``ExecutionRequestMessage`` or, on the final step, deposit an
-``ExecutionResultMessage`` to the parent/client.
-
-These tests fix the spec's acceptance criteria (contract-first, red first):
-  - a single-step task completes with its result in place;
-  - a two-step task runs both steps and returns;
-  - a broken tool/step marks the task failed without crashing (surfaced error);
-  - hooks (retry_guard, monitor) fire on the right events.
-
-The production code imported here (``legio.agents.base``) does NOT exist yet.
-This file is intentionally red.
+``ExecutionResultMessage`` to the parent/client. All substrate is native beaver
+(LEG-048); frames/queues are addressed by name on the shared db.
 """
 
 from __future__ import annotations
@@ -22,10 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pytest
+from beaver import AsyncBeaverDB
 
 from legio.agents.base import AgentBase
 from legio.flow import ExecutionRequestMessage, ExecutionResultMessage
-from legio.primitives.inmemory import BoardInMemory, QueueInMemory
+from legio.naming import queue_key
 
 
 def make_request(
@@ -39,6 +33,14 @@ def make_request(
         task_id=task_id,
         payload={"v": 1},
     )
+
+
+async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
+    try:
+        item = await db.queue(queue_key(agent_id)).get(block=False)
+    except IndexError:
+        return None
+    return item.data
 
 
 class FinalAgent(AgentBase):
@@ -89,14 +91,10 @@ class HookRecorder:
         return attempt < self._max_retries_for
 
 
-def build(agent_cls, *, agent_id: str, queues: dict[str, QueueInMemory], **extra: object):
-    queue = queues[agent_id]
-    board = BoardInMemory(scope="frames")
+def build(agent_cls, *, agent_id: str, db: AsyncBeaverDB, **extra: object):
     return agent_cls(
         agent_id=agent_id,
-        queue=queue,
-        board=board,
-        queues=queues,
+        db=db,
         frames_scope="frames",
         lease_ttl=60.0,
         **extra,  # type: ignore[arg-type]
@@ -104,16 +102,16 @@ def build(agent_cls, *, agent_id: str, queues: dict[str, QueueInMemory], **extra
 
 
 @pytest.mark.asyncio
-async def test_single_step_task_completes_with_result_in_place() -> None:
-    main_q, client_q = QueueInMemory("main"), QueueInMemory("client")
-    queues = {"main": main_q, "client": client_q}
-    agent = build(FinalAgent, agent_id="main", queues=queues)
-    await main_q.push(make_request(task_id="T-single").model_dump(mode="json"))
+async def test_single_step_task_completes_with_result_in_place(beaver_db: AsyncBeaverDB) -> None:
+    await beaver_db.queue(queue_key("main")).put(
+        make_request(task_id="T-single").model_dump(mode="json"), priority=0.0
+    )
+    agent = build(FinalAgent, agent_id="main", db=beaver_db)
 
     steps = await agent.run()
 
     assert steps == 1
-    result_item = await client_q.pop()
+    result_item = await pop_one(beaver_db, "client")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-single"
@@ -121,31 +119,26 @@ async def test_single_step_task_completes_with_result_in_place() -> None:
 
 
 @pytest.mark.asyncio
-async def test_two_step_task_runs_both_steps_and_returns() -> None:
-    main_q, step_q, client_q = QueueInMemory("main"), QueueInMemory("step"), QueueInMemory("client")
-    queues = {"main": main_q, "step": step_q, "client": client_q}
-    first = build(
-        ChainAgent,
-        agent_id="main",
-        queues=queues,
-    )
-    second = build(ChainAgent, agent_id="step", queues=queues)
+async def test_two_step_task_runs_both_steps_and_returns(beaver_db: AsyncBeaverDB) -> None:
+    first = build(ChainAgent, agent_id="main", db=beaver_db)
+    second = build(ChainAgent, agent_id="step", db=beaver_db)
     route = ("main", "step")
-    await main_q.push(
-        make_request(task_id="T-two", current_index=0, route=route).model_dump(mode="json")
+    await beaver_db.queue(queue_key("main")).put(
+        make_request(task_id="T-two", current_index=0, route=route).model_dump(mode="json"),
+        priority=0.0,
     )
 
     assert await first.run() == 1
-    step_item = await step_q.pop()
+    step_item = await pop_one(beaver_db, "step")
     assert step_item is not None
     step_message = ExecutionRequestMessage.model_validate(step_item)
     assert step_message.task_id == "T-two"
     assert step_message.current_index == 1
     assert step_message.payload["input"]["v"] == 2
-    await step_q.push(step_message.model_dump(mode="json"))
+    await beaver_db.queue(queue_key("step")).put(step_message.model_dump(mode="json"), priority=0.0)
 
     assert await second.run() == 1
-    ret_item = await client_q.pop()
+    ret_item = await pop_one(beaver_db, "client")
     assert ret_item is not None
     result = ExecutionResultMessage.model_validate(ret_item)
     assert result.task_id == "T-two"
@@ -153,17 +146,17 @@ async def test_two_step_task_runs_both_steps_and_returns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_broken_step_marks_task_failed_without_crash() -> None:
-    main_q, client_q = QueueInMemory("main"), QueueInMemory("client")
-    queues = {"main": main_q, "client": client_q}
-    agent = build(FailingAgent, agent_id="main", queues=queues)
-    await main_q.push(make_request(task_id="T-bad").model_dump(mode="json"))
+async def test_broken_step_marks_task_failed_without_crash(beaver_db: AsyncBeaverDB) -> None:
+    agent = build(FailingAgent, agent_id="main", db=beaver_db)
+    await beaver_db.queue(queue_key("main")).put(
+        make_request(task_id="T-bad").model_dump(mode="json"), priority=0.0
+    )
 
     steps = await agent.run()
 
     assert steps == 1
     assert agent.failures == ["T-bad"]
-    result_item = await client_q.pop()
+    result_item = await pop_one(beaver_db, "client")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-bad"
@@ -171,21 +164,23 @@ async def test_broken_step_marks_task_failed_without_crash() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_guard_fires_and_retries_then_deposits_error() -> None:
-    main_q, client_q = QueueInMemory("main"), QueueInMemory("client")
-    queues = {"main": main_q, "client": client_q}
+async def test_retry_guard_fires_and_retries_then_deposits_error(
+    beaver_db: AsyncBeaverDB,
+) -> None:
     recorder = HookRecorder()
     recorder._max_retries_for = 2
-    agent = build(FailingAgent, agent_id="main", queues=queues)
+    agent = build(FailingAgent, agent_id="main", db=beaver_db)
     agent.set_hooks(retry_guard=recorder.retry_guard)
 
-    await main_q.push(make_request(task_id="T-retry").model_dump(mode="json"))
+    await beaver_db.queue(queue_key("main")).put(
+        make_request(task_id="T-retry").model_dump(mode="json"), priority=0.0
+    )
 
     await agent.run()
 
     assert agent.failures == ["T-retry", "T-retry"]
     assert recorder.events.count(("retry_guard", "T-retry")) == 2
-    result_item = await client_q.pop()
+    result_item = await pop_one(beaver_db, "client")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-retry"
@@ -193,13 +188,13 @@ async def test_retry_guard_fires_and_retries_then_deposits_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_monitor_hook_fires_on_step_events() -> None:
-    main_q, client_q = QueueInMemory("main"), QueueInMemory("client")
-    queues = {"main": main_q, "client": client_q}
+async def test_monitor_hook_fires_on_step_events(beaver_db: AsyncBeaverDB) -> None:
     recorder = HookRecorder()
-    agent = build(FinalAgent, agent_id="main", queues=queues)
+    agent = build(FinalAgent, agent_id="main", db=beaver_db)
     agent.set_hooks(monitor=recorder.monitor)
-    await main_q.push(make_request(task_id="T-mon").model_dump(mode="json"))
+    await beaver_db.queue(queue_key("main")).put(
+        make_request(task_id="T-mon").model_dump(mode="json"), priority=0.0
+    )
 
     await agent.run()
 
@@ -209,8 +204,7 @@ async def test_monitor_hook_fires_on_step_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_idle_queue_returns_zero_without_busy_loop() -> None:
-    queues = {"main": QueueInMemory("main")}
-    agent = build(FinalAgent, agent_id="main", queues=queues)
+async def test_idle_queue_returns_zero_without_busy_loop(beaver_db: AsyncBeaverDB) -> None:
+    agent = build(FinalAgent, agent_id="main", db=beaver_db)
 
     assert await agent.run() == 0

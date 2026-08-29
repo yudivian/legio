@@ -6,8 +6,9 @@ the task or the client; it only advances whatever polled work appears on that
 agent's queue, and route/finish is decided by the DAG in each token.
 
 ``process_once`` drains the agent's queue once (polling-only, AGENTS.md rule 8:
-no sleeping; scheduling is the reaper / ``next_run_at``). ``serve`` is the
-foreground loop consumed by ``legio worker`` in deployment.
+no sleeping; a replica is autonomous and polls its own queue itself, with
+scheduling expressed as a field, ``next_run_at``). ``serve`` is the foreground
+loop consumed by ``legio worker`` in deployment.
 """
 
 from __future__ import annotations
@@ -38,8 +39,9 @@ class Worker:
 
         Returns the number of messages processed. At-least-once semantics are
         provided by the underlying lease/retry_guard (LEG-023); this method
-        never blocks or sleeps. A live replica is scheduled by a supervisor /
-        the reaper — there is no busy loop (AGENTS.md rule 8, LEG-023).
+        never blocks or sleeps. A live replica is autonomous: it polls its own
+        queue itself and is not scheduled by any central supervisor —
+        there is no busy loop (AGENTS.md rule 8, LEG-023).
         """
         processed = await self._agent.run()
         if processed:

@@ -13,8 +13,8 @@ from legio.logging import configure, get_legio_logger
 
 
 def test_logger_names_are_nested_under_legio() -> None:
-    logger = get_legio_logger("primitives.beaver")
-    assert logger.name == "legio.primitives.beaver"
+    logger = get_legio_logger("manager.client")
+    assert logger.name == "legio.manager.client"
 
 
 def test_configure_attaches_handler_to_legio_tree() -> None:
@@ -29,12 +29,12 @@ def test_configure_attaches_handler_to_legio_tree() -> None:
 
 def test_module_loggers_exist_under_legio_tree() -> None:
     for name in (
-        "legio.primitives.beaver",
+        "legio.manager.client",
         "legio.agents.tool_agent",
         "legio.manager",
         "legio.fed",
         "legio.security.middleware",
-        "legio.patterns",
+        "legio.naming",
         "legio.tools",
     ):
         logger = logging.getLogger(name)

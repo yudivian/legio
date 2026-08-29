@@ -3,9 +3,9 @@
 First real single-node capability over the REST surface. A client submits to the
 ``transform`` agent through the API; a ``Worker`` replica (LEG-025) polls the
 agent's queue and runs the registered fake tool; the root result lands in
-``results:{task_id}`` (LEG-053) and the client reads it back via ``status``.
-Boundary is the REST surface; all substrate is shared in-process (one beaver,
-one manager) as on a single node.
+``results:{task_id}`` and the client reads it back via ``status``.
+Boundary is the REST surface; all substrate is shared in-process over a single
+native beaver database (one connection, one manager) as on a single node.
 """
 
 from __future__ import annotations
@@ -14,12 +14,12 @@ import logging
 
 import httpx
 import pytest
+from beaver import AsyncBeaverDB
 from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
-from legio.manager import agent_queue, client_queue, reset_manager, results_board
-from legio.primitives.inmemory import BoardInMemory
+from legio.manager import results_board
 from legio.tools import ToolRegistry
 from legio.worker import Worker
 
@@ -46,32 +46,24 @@ class FakeTransformTool:
         return {"transformed": str(kwargs["text"]).upper()}
 
 
-@pytest.fixture(autouse=True)
-def reset_substrate() -> None:
-    reset_manager()
-
-
-async def build_transform_worker(task_id: str) -> Worker:
+def build_transform_worker(db: AsyncBeaverDB) -> Worker:
     registry = ToolRegistry()
     registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
     return Worker(
         ToolAgent(
             agent_id="transform",
+            db=db,
             registry=registry,
             tool_type="transform",
-            queue=agent_queue("transform"),
-            board=BoardInMemory("frames"),
-            queues={
-                "transform": agent_queue("transform"),
-                f"client:{task_id}": client_queue(task_id),
-            },
-            results_board=await results_board(),
+            frames_scope="frames",
         )
     )
 
 
 @pytest.mark.asyncio
-async def test_transform_e2e_over_rest_and_worker(caplog: pytest.LogCaptureFixture) -> None:
+async def test_transform_e2e_over_rest_and_worker(
+    caplog: pytest.LogCaptureFixture, beaver_db: AsyncBeaverDB
+) -> None:
     caplog.set_level(logging.INFO)
     app = create_app()
     transport = httpx.ASGITransport(app=app)
@@ -87,7 +79,7 @@ async def test_transform_e2e_over_rest_and_worker(caplog: pytest.LogCaptureFixtu
         assert resp.status_code == 200, resp.text
         task_id = resp.json()["task_id"]
 
-        worker = await build_transform_worker(task_id)
+        worker = build_transform_worker(beaver_db)
         processed = await worker.process_once()
         assert processed == 1
 
@@ -99,7 +91,7 @@ async def test_transform_e2e_over_rest_and_worker(caplog: pytest.LogCaptureFixtu
         assert entry["result_key"] == f"results:{task_id}"
 
         board = await results_board()
-        assert await board.get(task_id) == {"output": {"transformed": "HELLO"}}
+        assert await board.fetch(task_id) == {"output": {"transformed": "HELLO"}}
 
         log_text = caplog.text
         assert "manager submit" in log_text

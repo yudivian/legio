@@ -12,12 +12,11 @@ import typing
 
 import httpx
 import pytest
+from beaver import AsyncBeaverDB
 from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
-from legio.manager import agent_queue, client_queue, reset_manager, results_board
-from legio.primitives.inmemory import BoardInMemory
 from legio.security import ClientTokenStore
 from legio.tools import ToolRegistry
 from legio.worker import Worker
@@ -26,11 +25,6 @@ if typing.TYPE_CHECKING:
     from collections.abc import Iterator
 
     from fastapi import FastAPI
-
-
-@pytest.fixture(autouse=True)
-def reset_substrate() -> None:
-    reset_manager()
 
 
 @pytest.fixture
@@ -42,7 +36,7 @@ def store() -> ClientTokenStore:
 
 
 @pytest.fixture
-def app(store: ClientTokenStore) -> FastAPI:
+def app(store: ClientTokenStore, beaver_db: AsyncBeaverDB) -> FastAPI:
     return create_app(clients=store)
 
 
@@ -179,7 +173,9 @@ class FakeTransformTool:
 
 
 @pytest.mark.asyncio
-async def test_leg026_example_runs_behind_auth(ac: httpx.AsyncClient) -> None:
+async def test_leg026_example_runs_behind_auth(
+    ac: httpx.AsyncClient, beaver_db: AsyncBeaverDB
+) -> None:
     registry = ToolRegistry()
     registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
 
@@ -194,15 +190,10 @@ async def test_leg026_example_runs_behind_auth(ac: httpx.AsyncClient) -> None:
     worker = Worker(
         ToolAgent(
             agent_id="transform",
+            db=beaver_db,
             registry=registry,
             tool_type="transform",
-            queue=agent_queue("transform"),
-            board=BoardInMemory("frames"),
-            queues={
-                "transform": agent_queue("transform"),
-                f"client:{task_id}": client_queue(task_id),
-            },
-            results_board=await results_board(),
+            frames_scope="frames",
         )
     )
     await worker.process_once()

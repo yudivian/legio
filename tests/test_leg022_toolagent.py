@@ -1,24 +1,23 @@
-"""Red contract tests for LEG-022 — ToolAgent execution path.
+"""Tests for LEG-022 — ToolAgent execution path (over native beaver).
 
-The ToolAgent leases a work item from its queue, reads the staged ``input``
-frame key on the blackboard, validates it against the tool's ``input_schema``,
-calls the registered tool, validates the ``output_schema``, stages the ``out``
-frame and deposits an ``ExecutionResultMessage`` back to the parent (or the
-client for the last step). Schema failures on either edge are never silent: the
-failure is visible in the outcome.
-
-The production code imported here (``legio.agents.tool_agent``) does NOT exist
-yet. This file is intentionally red.
+The ToolAgent pops a work item from its native beaver queue, reads the staged
+``input`` frame key on the ``frames`` dictionary, validates it against the
+tool's ``input_schema``, calls the registered tool, validates the
+``output_schema``, stages the ``out`` frame and deposits an
+``ExecutionResultMessage`` back to the parent (or the client for the last step).
+Schema failures on either edge are never silent: the failure is visible in the
+outcome. All state lives on native beaver primitives (LEG-048).
 """
 
 from __future__ import annotations
 
 import pytest
+from beaver import AsyncBeaverDB
 from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.flow import ExecutionRequestMessage, ExecutionResultMessage
-from legio.primitives.inmemory import BoardInMemory, QueueInMemory
+from legio.naming import queue_key
 from legio.tools import ToolRegistry
 
 
@@ -54,15 +53,25 @@ class FakeTransformTool:
         return {"transformed": self._out}
 
 
+async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
+    try:
+        item = await db.queue(queue_key(agent_id)).get(block=False)
+    except IndexError:
+        return None
+    return item.data
+
+
+def frames(db: AsyncBeaverDB):
+    return db.dict("frames")
+
+
 @pytest.mark.asyncio
-async def test_fake_tool_executes_end_to_end_with_result_deposited() -> None:
+async def test_fake_tool_executes_end_to_end_with_result_deposited(
+    beaver_db: AsyncBeaverDB,
+) -> None:
     registry = ToolRegistry()
     tool = FakeTransformTool()
     registry.register("transform", tool, TransformInput, TransformOutput)
-
-    queue = QueueInMemory(agent_id="summ")
-    parent = QueueInMemory(agent_id="main_a")
-    board = BoardInMemory(scope="frames")
 
     request = ExecutionRequestMessage(
         route_pattern_names=["main_a", "summ"],
@@ -72,16 +81,14 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited() -> None:
         task_id="T-1",
         payload={"input": {"text": "hello", "factor": 2}},
     )
-    await queue.push(request.model_dump(mode="json"))
-    await board.set("summ:T-1", {"input": {"text": "hello", "factor": 2}})
+    await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
+    await frames(beaver_db).set("summ:T-1", {"input": {"text": "hello", "factor": 2}})
 
     agent = ToolAgent(
         agent_id="summ",
+        db=beaver_db,
         registry=registry,
         tool_type="transform",
-        queue=queue,
-        board=board,
-        queues={"main_a": parent},
         frames_scope="frames",
     )
 
@@ -91,11 +98,11 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited() -> None:
     assert tool.calls and tool.calls[0]["text"] == "hello"
     assert tool.calls[0]["factor"] == 2
 
-    frame = await board.get("summ:T-1")
+    frame = await frames(beaver_db).fetch("summ:T-1")
     assert frame is not None
     assert frame["out"]["transformed"] == "HELLO"
 
-    result_item = await parent.pop()
+    result_item = await pop_one(beaver_db, "main_a")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-1"
@@ -103,14 +110,10 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited() -> None:
 
 
 @pytest.mark.asyncio
-async def test_input_schema_rejection_is_never_silent() -> None:
+async def test_input_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB) -> None:
     registry = ToolRegistry()
     tool = FakeTransformTool()
     registry.register("transform", tool, TransformInput, TransformOutput)
-
-    queue = QueueInMemory(agent_id="summ")
-    parent = QueueInMemory(agent_id="main_a")
-    board = BoardInMemory(scope="frames")
 
     request = ExecutionRequestMessage(
         route_pattern_names=["main_a", "summ"],
@@ -119,23 +122,21 @@ async def test_input_schema_rejection_is_never_silent() -> None:
         origin_node_id="main_a",
         task_id="T-bad-in",
     )
-    await queue.push(request.model_dump(mode="json"))
-    await board.set("summ:T-bad-in", {"input": {"text": 123}})
+    await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
+    await frames(beaver_db).set("summ:T-bad-in", {"input": {"text": 123}})
 
     agent = ToolAgent(
         agent_id="summ",
+        db=beaver_db,
         registry=registry,
         tool_type="transform",
-        queue=queue,
-        board=board,
-        queues={"main_a": parent},
         frames_scope="frames",
     )
 
     await agent.process_next()
 
     assert tool.calls == []
-    result_item = await parent.pop()
+    result_item = await pop_one(beaver_db, "main_a")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-bad-in"
@@ -143,15 +144,11 @@ async def test_input_schema_rejection_is_never_silent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_output_schema_rejection_is_never_silent() -> None:
+async def test_output_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB) -> None:
     registry = ToolRegistry()
     tool = FakeTransformTool()
     tool.set_output(123)
     registry.register("transform", tool, TransformInput, TransformOutput)
-
-    queue = QueueInMemory(agent_id="summ")
-    parent = QueueInMemory(agent_id="main_a")
-    board = BoardInMemory(scope="frames")
 
     request = ExecutionRequestMessage(
         route_pattern_names=["main_a", "summ"],
@@ -160,23 +157,21 @@ async def test_output_schema_rejection_is_never_silent() -> None:
         origin_node_id="main_a",
         task_id="T-bad-out",
     )
-    await queue.push(request.model_dump(mode="json"))
-    await board.set("summ:T-bad-out", {"input": {"text": "hi"}})
+    await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
+    await frames(beaver_db).set("summ:T-bad-out", {"input": {"text": "hi"}})
 
     agent = ToolAgent(
         agent_id="summ",
+        db=beaver_db,
         registry=registry,
         tool_type="transform",
-        queue=queue,
-        board=board,
-        queues={"main_a": parent},
         frames_scope="frames",
     )
 
     await agent.process_next()
 
     assert len(tool.calls) == 1
-    result_item = await parent.pop()
+    result_item = await pop_one(beaver_db, "main_a")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-bad-out"
@@ -184,20 +179,15 @@ async def test_output_schema_rejection_is_never_silent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_due_item_returns_false() -> None:
+async def test_no_due_item_returns_false(beaver_db: AsyncBeaverDB) -> None:
     registry = ToolRegistry()
     registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
 
-    queue = QueueInMemory(agent_id="summ")
-    board = BoardInMemory(scope="frames")
-
     agent = ToolAgent(
         agent_id="summ",
+        db=beaver_db,
         registry=registry,
         tool_type="transform",
-        queue=queue,
-        board=board,
-        queues={"main_a": QueueInMemory(agent_id="main_a")},
         frames_scope="frames",
     )
 

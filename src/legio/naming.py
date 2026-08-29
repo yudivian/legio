@@ -1,8 +1,13 @@
-"""`legio.naming` — identifier validation (LEG-016).
+"""`legio.naming` — identifiers and persisted names (LEG-016, LEG-048).
 
 Every identifier (node, agent, tool, task) has a validating contract. The
 ``client:`` pseudo-agent family is reserved and cannot be used for regular
 agents.
+
+The only persisted namespace legio names directly is the per-agent queue:
+``legio:queue:<agent_id>`` (LEG-048). Boards are beaver dictionaries addressed
+by their scope name directly (``db.dict(scope)``), so they need no extra key
+namespace. Everything else is beaver's native naming.
 """
 
 from __future__ import annotations
@@ -13,6 +18,14 @@ import re
 from legio.errors import InvalidNameError
 
 logger = logging.getLogger(__name__)
+
+QUEUE_NAMESPACE = "legio:queue:"
+
+
+def queue_key(agent_id: str) -> str:
+    """Full namespaced beaver queue name for an agent (LEG-048)."""
+    return f"{QUEUE_NAMESPACE}{agent_id}"
+
 
 _NODE_RE = re.compile(r"^[^@]+@[^@]+$")
 _AGENT_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -59,7 +72,9 @@ def is_reserved_agent(agent_id: str) -> bool:
 
 
 __all__ = [
+    "QUEUE_NAMESPACE",
     "is_reserved_agent",
+    "queue_key",
     "validate_agent_id",
     "validate_node_id",
     "validate_task_id",

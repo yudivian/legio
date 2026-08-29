@@ -1,35 +1,29 @@
-"""Integration test for the decoupled polling flow (base for LEG-026 E2E).
+"""Integration test for the decoupled polling flow over native beaver (LEG-048).
 
 Pins the corrected, decoupled model over the real modules:
 
 1. ``manager.submit`` (synthetic parent) deposits the first
-   ``ExecutionRequestMessage`` (root step) into the starting agent's queue and
-   stages the payload.
+   ``ExecutionRequestMessage`` (root step) into the starting agent's queue
+   (``db.queue("legio:queue:transform")``) and stages the payload.
 2. A worker runs a ``ToolAgent`` that *polls* that queue — it never knows the
    client or the task, only the queue.
 3. The agent advances/finishes by the DAG in the token and, being root, writes
-   the result to ``results:{task_id}``.
+   the result to ``db.dict("results")``.
 4. ``status`` (polling the board) reflects COMPLETED with the output.
 
 This validates the critical corrections so that LEG-025/026 are built on a
-faithful decoupled base, not an orchestrated one.
+faithful decoupled base, not an orchestrated one. No invented substrate layer.
 """
 
 from __future__ import annotations
 
 import pytest
+from beaver import AsyncBeaverDB
 from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
-from legio.manager import (
-    agent_queue,
-    client_queue,
-    reset_manager,
-    results_board,
-    status,
-    submit,
-)
-from legio.primitives.inmemory import BoardInMemory
+from legio.manager import results_board, status, submit
+from legio.naming import queue_key
 from legio.tools import ToolRegistry
 
 
@@ -55,45 +49,41 @@ class FakeTransformTool:
         return {"transformed": str(kwargs["text"]).upper()}
 
 
-@pytest.fixture(autouse=True)
-def reset_substrate() -> None:
-    reset_manager()
-
-
-async def build_transform_worker(task_id: str) -> ToolAgent:
+def build_transform_worker(db: AsyncBeaverDB) -> ToolAgent:
     registry = ToolRegistry()
     registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
     return ToolAgent(
         agent_id="transform",
+        db=db,
         registry=registry,
         tool_type="transform",
-        queue=agent_queue("transform"),
-        board=BoardInMemory("frames"),
-        queues={
-            "transform": agent_queue("transform"),
-            f"client:{task_id}": client_queue(task_id),
-        },
-        results_board=await results_board(),
+        frames_scope="frames",
     )
 
 
 @pytest.mark.asyncio
-async def test_submit_deposits_step_one_in_starting_agent_queue() -> None:
+async def test_submit_deposits_step_one_in_starting_agent_queue(
+    beaver_db: AsyncBeaverDB,
+) -> None:
     task_id = await submit("client-a", "transform", {"text": "hello"})
 
-    start_q = agent_queue("transform")
-    item = await start_q.pop()
-    assert item is not None
-    assert item["task_id"] == task_id
-    assert item["current_index"] == 0
-    assert item["payload"]["input"] == {"text": "hello"}
+    item = await beaver_db.queue(queue_key("transform")).get(block=False)
+    assert item.data["task_id"] == task_id
+    assert item.data["current_index"] == 0
+    assert item.data["payload"]["input"] == {"text": "hello"}
 
 
 @pytest.mark.asyncio
-async def test_decoupled_root_flow_writes_results_and_status_completed() -> None:
+async def test_decoupled_root_flow_writes_results_and_status_completed(
+    beaver_db: AsyncBeaverDB,
+) -> None:
     task_id = await submit("client-a", "transform", {"text": "hello"})
 
-    worker = await build_transform_worker(task_id)
+    worker_db = beaver_db
+    board = await results_board()
+    _ = board  # ensures the manager's results dict exists
+
+    worker = build_transform_worker(worker_db)
     steps = await worker.run()
     assert steps == 1
 
@@ -102,5 +92,4 @@ async def test_decoupled_root_flow_writes_results_and_status_completed() -> None
     assert entry.output == {"transformed": "HELLO"}
     assert entry.result_key == f"results:{task_id}"
 
-    board = await results_board()
-    assert await board.get(task_id) == {"output": {"transformed": "HELLO"}}
+    assert await board.fetch(task_id) == {"output": {"transformed": "HELLO"}}

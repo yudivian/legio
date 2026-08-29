@@ -51,6 +51,15 @@ class InvalidNameError(RecoverableError):
     """An identifier violates its naming contract."""
 
 
+class TemplateResolutionError(UnrecoverableError):
+    """A template dotted path does not resolve on the scoped board (LEG-031).
+
+    A path that points nowhere is an authoring/pattern bug, not a transient
+    failure: it must surface explicitly, never silently substitute an empty
+    string (AGENTS.md rule 9).
+    """
+
+
 def recoverable(error: LegioError) -> bool:
     """Whether the error type is recoverable (safe to retry)."""
     return isinstance(error, LegioError) and error._recoverable
@@ -65,6 +74,7 @@ __all__ = [
     "InvalidNameError",
     "LegioError",
     "RecoverableError",
+    "TemplateResolutionError",
     "UnrecoverableError",
     "code",
     "recoverable",

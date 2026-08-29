@@ -35,6 +35,8 @@ line-length = 100
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
