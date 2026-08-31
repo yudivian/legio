@@ -25,7 +25,7 @@ The four scenarios (each a runnable test):
    (LEG-061).
 
 ## Interface
-- Test scenario harness over the worker.
+- Test scenario harness over the agent loop.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-064), verbatim:

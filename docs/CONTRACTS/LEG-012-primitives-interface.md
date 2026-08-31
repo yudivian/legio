@@ -27,9 +27,8 @@ the whole system builds on, over beaver.
 ## Contract & design
 - **Queue** — persistent priority queue per agent; `push` / `lease` / `ack` /
   `pop`; `next_run_at` schedules retries as a field (no scheduler).
-- **Board** — persistent dict per scope: `blackboard:{node}:{task_id}`,
-  `frames:{agent}:{task_id}`, `semaphore`, `results:{task_id}`, `catalog`,
-  `outbox`, `tasks`.
+- **Board** — persistent dict per scope: `results:{task_id}`, `tasks`,
+  `gates`, `catalog`, `outbox`, `semaphore`.
 - **Lock** — TTL + `renew`; it is the task lease; expiry makes items reclaimable.
 - Namespacing: `legio:queue:<agent>`, `legio:board:<scope>:<key>`.
 

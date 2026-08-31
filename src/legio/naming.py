@@ -1,7 +1,7 @@
 """`legio.naming` — identifiers and persisted names (LEG-016, LEG-048).
 
 Every identifier (node, agent, tool, task) has a validating contract. The
-``client:`` pseudo-agent family is reserved and cannot be used for regular
+``client:`` family is reserved for root returns and cannot be used for regular
 agents.
 
 The only persisted namespace legio names directly is the per-agent queue:
@@ -67,7 +67,7 @@ def validate_task_id(task_id: str) -> None:
 
 
 def is_reserved_agent(agent_id: str) -> bool:
-    """Whether the agent id belongs to the reserved pseudo-agent family."""
+    """Whether the agent id belongs to the reserved ``client:`` family."""
     return agent_id.startswith(_RESERVED_AGENT_PREFIX)
 
 

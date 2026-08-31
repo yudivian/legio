@@ -19,7 +19,6 @@ from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.security import ClientTokenStore
 from legio.tools import ToolRegistry
-from legio.worker import Worker
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterator
@@ -66,7 +65,7 @@ async def test_submit_with_valid_token_works(ac: httpx.AsyncClient) -> None:
         headers=bearer("tok-a"),
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["task_id"].startswith("T-")
+    assert resp.json()["task_id"].startswith("local:")
 
 
 @pytest.mark.asyncio
@@ -187,21 +186,18 @@ async def test_leg026_example_runs_behind_auth(
     assert created.status_code == 200, created.text
     task_id = created.json()["task_id"]
 
-    worker = Worker(
-        ToolAgent(
-            agent_id="transform",
-            db=beaver_db,
-            registry=registry,
-            tool_type="transform",
-            frames_scope="frames",
-        )
+    agent = ToolAgent(
+        agent_id="transform",
+        db=beaver_db,
+        registry=registry,
+        tool_type="transform",
     )
-    await worker.process_once()
+    await agent.run()
 
     owner = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
     assert owner.status_code == 200, owner.text
     assert owner.json()["state"] == "completed"
-    assert owner.json()["output"] == {"upper": "HI"}
+    assert owner.json()["output"] == {"text": "hi", "upper": "HI"}
 
 
 @pytest.mark.asyncio

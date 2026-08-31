@@ -34,7 +34,6 @@ from legio.patterns import load_pattern_specs
 from legio.patterns.sequences import starting_route
 from legio.security import ClientTokenStore
 from legio.tools import ToolRegistry
-from legio.worker import Worker
 
 SUMMARIZE_YAML = """
 name: summarize
@@ -81,7 +80,7 @@ def bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def build_standing_agents(db: AsyncBeaverDB) -> tuple[Worker, Worker]:
+def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent]:
     """Boot the two independent agents at node startup, each with its own queue."""
     lingo_client = MockLLM(
         responses=[SummarizeOutput(title="Foxes", summary="A note about foxes.", word_count=4)]
@@ -89,24 +88,18 @@ def build_standing_agents(db: AsyncBeaverDB) -> tuple[Worker, Worker]:
     registry = ToolRegistry()
     registry.register("assess", FakeAssessTool(), AssessInput, AssessOutput)
 
-    summ = Worker(
-        LinguisticAgent(
-            agent_id="summ",
-            db=db,
-            lingo_client=lingo_client,
-            prompt_template="Summarize {input.text} and {input.lang}.",
-            output_model=SummarizeOutput,
-            frames_scope="frames",
-        )
+    summ = LinguisticAgent(
+        agent_id="summ",
+        db=db,
+        lingo_client=lingo_client,
+        prompt_template="Summarize {input.text} and {input.lang}.",
+        output_model=SummarizeOutput,
     )
-    assess = Worker(
-        ToolAgent(
-            agent_id="assess",
-            db=db,
-            registry=registry,
-            tool_type="assess",
-            frames_scope="frames",
-        )
+    assess = ToolAgent(
+        agent_id="assess",
+        db=db,
+        registry=registry,
+        tool_type="assess",
     )
     return summ, assess
 
@@ -137,19 +130,36 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
         task_id = resp.json()["task_id"]
 
         summ, assess = build_standing_agents(beaver_db)
-        assert await summ.process_once() == 1
-        assert await assess.process_once() == 1
+        assert await summ.run() == 1
+        assert await assess.run() == 1
 
         st = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
         assert st.status_code == 200, st.text
         entry = st.json()
         assert entry["state"] == "completed"
-        # The assess tool consumed the linguistic step's structured output.
-        assert entry["output"] == {"result": "[Foxes] A note about foxes."}
+        # The assess tool consumed the linguistic step's structured output and
+        # the root result carries the full accumulated state (H3).
+        assert entry["output"] == {
+            "text": "the quick fox",
+            "lang": "en",
+            "title": "Foxes",
+            "summary": "A note about foxes.",
+            "word_count": 4,
+            "result": "[Foxes] A note about foxes.",
+        }
         assert entry["result_key"] == f"results:{task_id}"
 
         board = await results_board()
-        assert await board.fetch(task_id) == {"output": {"result": "[Foxes] A note about foxes."}}
+        assert await board.fetch(task_id) == {
+            "output": {
+                "text": "the quick fox",
+                "lang": "en",
+                "title": "Foxes",
+                "summary": "A note about foxes.",
+                "word_count": 4,
+                "result": "[Foxes] A note about foxes.",
+            }
+        }
 
         log_text = caplog.text
         assert "manager submit" in log_text

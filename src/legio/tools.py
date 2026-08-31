@@ -3,7 +3,7 @@
 A tool is an opaque, substitutable execution resource injected by the consumer.
 It exposes only its pydantic ``input_schema`` / ``output_schema`` and never knows
 about agents or queues. The registry maps ``tool_type`` → tool per node, loaded
-at worker startup.
+at agent startup.
 """
 
 from __future__ import annotations

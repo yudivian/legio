@@ -1,11 +1,11 @@
-"""Tests for LEG-014 — Mini-manager & client pseudo-agent (over native beaver).
+"""Tests for LEG-014 — Mini-manager (over native beaver).
 
 These tests pin the public contract for the mini-manager: async ``submit`` /
 ``status`` over the native beaver ``tasks``/``results`` dictionaries and the
-per-agent queues (LEG-048, no invented substrate), the internal
-``client:{task_id}`` pseudo-agent queue that receives the root result, task
-ownership tagging (per LEG-017), root-token semantics (per LEG-011) and clean /
-reaper-driven termination.
+per-agent queues (LEG-048, no invented substrate), the root result landing on
+the ``results:{task_id}`` board (read via ``status``), task ownership tagging
+(per LEG-017) and root-token semantics (per LEG-011). No per-task client queue:
+root results never deposit anywhere but the ``results`` board.
 """
 
 from __future__ import annotations
@@ -14,8 +14,7 @@ import pytest
 from beaver import AsyncBeaverDB
 
 from legio.flow import FlowToken
-from legio.manager import Reaper, TaskState, results_board, status, submit
-from legio.manager.client import ClientPseudoAgent
+from legio.manager import TaskState, results_board, status, submit
 
 
 @pytest.mark.asyncio
@@ -57,7 +56,7 @@ async def test_status_is_scoped_to_the_owning_client(beaver_db: AsyncBeaverDB) -
 
 
 @pytest.mark.asyncio
-async def test_submitted_task_holds_root_token_targeting_client_queue(
+async def test_submitted_task_holds_root_token_targeting_client(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     task_id = await submit("client-a", "flow_alpha", {"raw": 1})
@@ -70,41 +69,12 @@ async def test_submitted_task_holds_root_token_targeting_client_queue(
     assert token.ultimate_return_agent_id == f"client:{task_id}"
 
 
-def test_client_pseudo_agent_names_its_own_queue() -> None:
-    pseudo = ClientPseudoAgent(task_id="T-00")
-    assert pseudo.agent_id == "client:T-00"
-
-
 @pytest.mark.asyncio
-async def test_termination_request_marks_state_client_terminated(
+async def test_submitted_task_stays_pending_until_root_result(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     task_id = await submit("client-a", "flow_alpha", {"raw": 1})
 
-    await ClientPseudoAgent(task_id=task_id).handle_termination_request()
-
     entry = await status(task_id, "client-a")
-    assert entry.state is TaskState.CLIENT_TERMINATED
-
-
-@pytest.mark.asyncio
-async def test_termination_drains_client_pseudo_agent_queue(
-    beaver_db: AsyncBeaverDB,
-) -> None:
-    task_id = await submit("client-a", "flow_alpha", {"raw": 1})
-    pseudo = ClientPseudoAgent(task_id=task_id)
-
-    remaining = await pseudo.drain()
-    assert remaining == []
-
-
-@pytest.mark.asyncio
-async def test_reaper_cancels_stuck_client_queues(beaver_db: AsyncBeaverDB) -> None:
-    task_id = await submit("client-a", "flow_alpha", {"raw": 1})
-
-    reaper = Reaper()
-    cancelled = await reaper.reap_clients()
-    assert task_id in cancelled
-
-    entry = await status(task_id, "client-a")
-    assert entry.state is TaskState.CLIENT_TERMINATED
+    assert entry.state is TaskState.PENDING
+    assert entry.result_key is None

@@ -1,22 +1,20 @@
 """`legio.manager` — the mini-manager (LEG-024) over native beaver (LEG-048).
 
-The mini-manager owns task submission, status lookup and the client
-pseudo-agent lifecycle. It is async and polling-only (AGENTS.md rule 8): it
-never blocks or sleeps. All state lives on native beaver primitives — the
-``tasks`` dictionary and the ``results`` dictionary (LEG-048, no invented
-substrate layer): ``db.dict("tasks")`` / ``db.dict("results")``, and per-agent
-queues ``db.queue("legio:queue:<agent_id>")``. Task result output lives on the
-``results`` dictionary; the ``client:{task_id}`` pseudo-agent queue receives the
-root result. Termination is either clean (the client pseudo-agent handles the
-terminating root result) or reaper-driven (a stuck client queue is
-force-terminated).
+The mini-manager owns task submission and status lookup. It is async and
+polling-only (AGENTS.md rule 8): it never blocks or sleeps. All state lives on
+native beaver primitives — the ``tasks`` dictionary and the ``results``
+dictionary (LEG-048, no invented substrate layer): ``db.dict("tasks")`` /
+``db.dict("results")``, and per-agent queues ``db.queue("legio:queue:<agent_id>")``.
+Task result output lives on the ``results`` dictionary, read by the client via
+``status``; there is no per-task ``client:{task_id}`` queue (ARCH §7). Task ids
+obey the naming contract ``<origin>:<uuid>`` (LEG-016).
 """
 
 from __future__ import annotations
 
 import logging
+import uuid
 from enum import Enum
-from itertools import count
 from typing import Any
 
 from beaver import AsyncBeaverDB
@@ -31,13 +29,13 @@ _TASKS_SCOPE = "tasks"
 _RESULTS_SCOPE = "results"
 
 _DEFAULT_DB_PATH = "legio.db"
+_DEFAULT_NODE_ID = "local"
 
 _ROUTES: dict[str, tuple[str, ...]] = {}
 
-_counter: Any = count(1)
-
 _db: AsyncBeaverDB | None = None
 _db_path: str = _DEFAULT_DB_PATH
+_node_id: str = _DEFAULT_NODE_ID
 
 
 class TaskState(str, Enum):
@@ -46,7 +44,6 @@ class TaskState(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
-    CLIENT_TERMINATED = "client_terminated"
 
 
 class TaskEntry(BaseModel):
@@ -60,19 +57,27 @@ class TaskEntry(BaseModel):
     result_key: str | None = None
 
 
-async def connect_manager(db_path: str | None = None) -> AsyncBeaverDB:
-    """Open (or reuse) the manager's shared beaver database and return it."""
-    global _db, _db_path
+async def connect_manager(
+    db_path: str | None = None, *, node_id: str | None = None
+) -> AsyncBeaverDB:
+    """Open (or reuse) the manager's shared beaver database and return it.
+
+    ``node_id`` is the origin node minted into new task ids (``<origin>:<uuid>``,
+    LEG-016); it defaults to ``"local"`` and is only accepted on first bind.
+    """
+    global _db, _db_path, _node_id
     if db_path is not None:
         _db_path = db_path
+    if node_id is not None:
+        _node_id = node_id
     if _db is None:
         _db = AsyncBeaverDB(_db_path)
         await _db.connect()
-        logger.info("manager connected db=%s", _db_path)
+        logger.info("manager connected db=%s node=%s", _db_path, _node_id)
     return _db
 
 
-async def reset_manager(db_path: str | None = None) -> AsyncBeaverDB:
+async def reset_manager(db_path: str | None = None, *, node_id: str | None = None) -> AsyncBeaverDB:
     """Bind the manager to a fresh database (typically a temp file for tests).
 
     Closes any previous connection so the new db starts empty.
@@ -81,7 +86,7 @@ async def reset_manager(db_path: str | None = None) -> AsyncBeaverDB:
     if _db is not None:
         await _db.close()
         _db = None
-    return await connect_manager(db_path)
+    return await connect_manager(db_path, node_id=node_id)
 
 
 async def close_manager() -> None:
@@ -112,19 +117,15 @@ def agent_queue(agent_id: str) -> Any:
     """Return the native beaver queue for an agent, by name.
 
     This is how any replica reaches an agent's queue: ``db.queue(...)`` maps the
-    agent id onto a persistent, namespaced queue so a worker can poll it
+    agent id onto a persistent, namespaced queue so an agent can poll it
     (LEG-048, ARCH §7.1, polling-only). The queue is created lazily by beaver.
     """
     return _current().queue(queue_key(agent_id))
 
 
-def client_queue(task_id: str) -> Any:
-    """Return the client pseudo-agent queue for ``task_id``."""
-    return agent_queue(f"client:{task_id}")
-
-
-def next_counter() -> int:
-    return next(_counter)
+def _new_task_id() -> str:
+    """Mint a task id honoring the naming contract ``<origin>:<uuid>`` (LEG-016)."""
+    return f"{_node_id}:{uuid.uuid4()}"
 
 
 def register_starting_route(starting_agent: str, route_names: tuple[str, ...]) -> None:
@@ -165,17 +166,17 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
     The synthetic parent (ARCH §6) resolves the starting pattern's static route
     (default: the single agent), stages the inputs on the ``tasks`` dictionary
     and deposits the first ``ExecutionRequestMessage`` (the root step) into the
-    first agent's queue. From there the flow is fully decoupled: workers poll
-    the agent queues and route by the DAG in the token.
+    first agent's queue. From there the flow is fully decoupled: agents poll
+    their own queues and route by the DAG in the token.
     """
-    task_id = f"T-{next_counter()}"
+    task_id = _new_task_id()
     route = _resolve_route(starting_agent)
     first_agent = route[0]
     token = FlowToken(
         route_pattern_names=route,
         current_index=0,
         ultimate_return_agent_id=f"client:{task_id}",
-        origin_node_id=first_agent,
+        origin_node_id=_node_id,
         root=True,
         task_id=task_id,
     )
@@ -194,7 +195,7 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
         route_pattern_names=route,
         current_index=0,
         ultimate_return_agent_id=f"client:{task_id}",
-        origin_node_id=first_agent,
+        origin_node_id=_node_id,
         task_id=task_id,
         payload={"input": payload},
     )
@@ -240,49 +241,17 @@ async def status(task_id: str, client_id: str | None) -> TaskEntry:
     )
 
 
-async def set_task_state(task_id: str, state: TaskState) -> None:
-    """Update a task's lifecycle state on the ``tasks`` dictionary."""
-    tasks = await tasks_board()
-    data = await tasks.fetch(task_id)
-    if data is None:
-        return
-    data["state"] = state
-    await tasks.set(task_id, data)
-
-
-class Reaper:
-    """Force-terminates stuck client pseudo-agent queues."""
-
-    async def reap_clients(self) -> list[str]:
-        """Return the task_ids whose client queues were force-terminated."""
-        cancelled: list[str] = []
-        tasks = await tasks_board()
-        async for task_id in tasks.keys():
-            data = await tasks.fetch(task_id)
-            if data is None or data["state"] == TaskState.CLIENT_TERMINATED:
-                continue
-            cancelled.append(task_id)
-            data["state"] = TaskState.CLIENT_TERMINATED
-            await tasks.set(task_id, data)
-        if cancelled:
-            logger.info("manager reaper cancelled client tasks=%s", ",".join(cancelled))
-        return cancelled
-
-
 __all__ = [
     "AsyncBeaverDB",
-    "Reaper",
     "TaskEntry",
     "TaskState",
     "agent_queue",
-    "client_queue",
     "close_manager",
     "connect_manager",
     "db",
     "register_starting_route",
     "reset_manager",
     "results_board",
-    "set_task_state",
     "status",
     "submit",
     "tasks_board",

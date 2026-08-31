@@ -1,10 +1,11 @@
 """Tests for LEG-022 — ToolAgent execution path (over native beaver).
 
-The ToolAgent pops a work item from its native beaver queue, reads the staged
-``input`` frame key on the ``frames`` dictionary, validates it against the
-tool's ``input_schema``, calls the registered tool, validates the
-``output_schema``, stages the ``out`` frame and deposits an
-``ExecutionResultMessage`` back to the parent (or the client for the last step).
+The ToolAgent pops a work item from its native beaver queue, reads the
+``input`` from the message-carried payload, validates it against the tool's
+``input_schema``, calls the registered tool, validates the
+``output_schema``, and deposits an ``ExecutionResultMessage`` back to the
+parent (or the client for the last step). The step's state rides in the
+messages (AGENT_LIFECYCLE §12.1): there is no out-of-message staging board.
 Schema failures on either edge are never silent: the failure is visible in the
 outcome. All state lives on native beaver primitives (LEG-048).
 """
@@ -61,10 +62,6 @@ async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
     return item.data
 
 
-def frames(db: AsyncBeaverDB):
-    return db.dict("frames")
-
-
 @pytest.mark.asyncio
 async def test_fake_tool_executes_end_to_end_with_result_deposited(
     beaver_db: AsyncBeaverDB,
@@ -82,14 +79,12 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
         payload={"input": {"text": "hello", "factor": 2}},
     )
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
-    await frames(beaver_db).set("summ:T-1", {"input": {"text": "hello", "factor": 2}})
 
     agent = ToolAgent(
         agent_id="summ",
         db=beaver_db,
         registry=registry,
         tool_type="transform",
-        frames_scope="frames",
     )
 
     handled = await agent.process_next()
@@ -97,10 +92,6 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
 
     assert tool.calls and tool.calls[0]["text"] == "hello"
     assert tool.calls[0]["factor"] == 2
-
-    frame = await frames(beaver_db).fetch("summ:T-1")
-    assert frame is not None
-    assert frame["out"]["transformed"] == "HELLO"
 
     result_item = await pop_one(beaver_db, "main_a")
     assert result_item is not None
@@ -121,16 +112,15 @@ async def test_input_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB) 
         ultimate_return_agent_id="main_a",
         origin_node_id="main_a",
         task_id="T-bad-in",
+        payload={"input": {"text": 123}},
     )
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
-    await frames(beaver_db).set("summ:T-bad-in", {"input": {"text": 123}})
 
     agent = ToolAgent(
         agent_id="summ",
         db=beaver_db,
         registry=registry,
         tool_type="transform",
-        frames_scope="frames",
     )
 
     await agent.process_next()
@@ -156,16 +146,15 @@ async def test_output_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB)
         ultimate_return_agent_id="main_a",
         origin_node_id="main_a",
         task_id="T-bad-out",
+        payload={"input": {"text": "hi"}},
     )
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
-    await frames(beaver_db).set("summ:T-bad-out", {"input": {"text": "hi"}})
 
     agent = ToolAgent(
         agent_id="summ",
         db=beaver_db,
         registry=registry,
         tool_type="transform",
-        frames_scope="frames",
     )
 
     await agent.process_next()
@@ -188,7 +177,6 @@ async def test_no_due_item_returns_false(beaver_db: AsyncBeaverDB) -> None:
         db=beaver_db,
         registry=registry,
         tool_type="transform",
-        frames_scope="frames",
     )
 
     assert await agent.process_next() is False

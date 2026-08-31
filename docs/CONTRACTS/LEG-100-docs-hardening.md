@@ -16,7 +16,8 @@ real glossary, and every in-repo example a green test (no bitrot).
 
 ## Contract & design
 - Consumer guide is executable top-to-bottom: register a tool → write a
-  pattern → run worker → submit → read status (each step a runnable command).
+  pattern → run the agent loop (or `legio server` bootstrap) → submit → read
+  status (each step a runnable command).
 - Glossary = LEG-016 identifiers + architecture terms, single canonical
   definition each.
 - Examples glued to CI: any drift in a documented example breaks the suite.

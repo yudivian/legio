@@ -31,9 +31,10 @@ removed before a reviewed PR to this file. Managed with `uv`. Python runtime:
 
 - `castor-io`: outdated against current beaver; its role (the **TaskManager**)
   is implemented in legio itself (see `docs/AGENT_LIFECYCLE.md`).
-- **Task-manager/worker libraries evaluated and rejected** (criteria: minimal,
-  no Redis/broker, isolated dependencies, and — critically — backed by **beaver**
-  as the substrate):
+- **Task-queue / task-executor libraries evaluated and rejected** (criteria:
+  minimal, no Redis/broker, isolated dependencies, and — critically — backed by
+  **beaver** as the substrate; note these are generic task-queue libraries, not
+  a legio concept):
   - `rq`, `celery`, `dramatiq`, `arq`, `taskiq`(redis): require Redis/broker.
     Rejected.
   - `procrastinate`: requires a PostgreSQL server — remote infra, not embedded.

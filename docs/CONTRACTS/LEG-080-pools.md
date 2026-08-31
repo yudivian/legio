@@ -1,4 +1,4 @@
-# LEG-080 — Pools (pool_size replicas per agent)
+# LEG-080 — Pools (pool_size agents per class)
 
 - **Status:** DRAFT (awaiting maintainer approval)
 - **Rasante:** R-8
@@ -7,25 +7,34 @@
 - **Depends on:** LEG-060 (leases)
 
 ## Goal
-Horizontal capacity: `pool_size` replicas of an agent consuming the same queue
-concurrently, each item leased exactly once; single-replica behavior unchanged.
+Horizontal capacity: `pool_size` agents of a class consuming the same class
+queue concurrently, each item leased exactly once; single-agent behavior
+unchanged.
 
 ## Scope
-- **In scope:** pool_size, concurrent consumption, exactly-once lease.
+- **In scope:** pool_size (a creation parameter of the class, §4.3 of
+  AGENT_LIFECYCLE), concurrent consumption, exactly-once lease.
 - **Out of scope:** cross-node pools (R-9 owns federation).
 
 ## Contract & design
-- A pool = N worker loops on the same agent queue; lease claims items
-  atomically (LEG-060) so only one replica executes each item.
-- `pool_size: 1` default equals the single-replica path.
+- A class of `pool_size = N` has N agents, each running its own internal loop on
+  the class's queue (`AgentBase.run`, LEG-023); the lease claims items
+  atomically (LEG-060) so only one agent executes each item.
+- `pool_size` is a **creation parameter of the class, given with its YAML spec**
+  (`create-class <spec.yaml> [--pool N]`, §4.3/§4.8 of AGENT_LIFECYCLE) — the
+  spec is data (patterns as YAML, rule 7), the pool size is operator capacity,
+  never part of a loop or of the TaskManager.
+- `pool_size: 1` is the default single-agent path. `pool_size: 0` creates the
+  class without agents (born disabled, §4.3/§4.4).
 
 ## Interface
-- Agent/pool config field; worker pool instantiation.
+- Class creation parameter (`pool_size`); instantiation at class create
+  (§5.2 of AGENT_LIFECYCLE).
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-080), verbatim:
-- n replicas on the same queue process n items concurrently; each item leased
-  exactly once; single-replica behavior unchanged.
+- n agents on the same queue process n items concurrently; each item leased
+  exactly once; single-agent behavior unchanged.
 
 ## Tests
 - Contract tests (red first): concurrency, exactly-once, n=1 regression.

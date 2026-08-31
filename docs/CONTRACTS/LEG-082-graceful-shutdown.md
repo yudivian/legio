@@ -21,7 +21,7 @@ exit; per-tool and per-LLM concurrency semaphores are honored.
   tool simply waits rather than failing.
 
 ## Interface
-- `Semaphore`-based guards; shutdown hook in worker/server lifecycle.
+- `Semaphore`-based guards; shutdown hook in the node/server lifecycle.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-082), verbatim:

@@ -5,7 +5,7 @@ Pins the corrected, decoupled model over the real modules:
 1. ``manager.submit`` (synthetic parent) deposits the first
    ``ExecutionRequestMessage`` (root step) into the starting agent's queue
    (``db.queue("legio:queue:transform")``) and stages the payload.
-2. A worker runs a ``ToolAgent`` that *polls* that queue — it never knows the
+2. A ``ToolAgent`` runs its own loop and *polls* that queue — it never knows the
    client or the task, only the queue.
 3. The agent advances/finishes by the DAG in the token and, being root, writes
    the result to ``db.dict("results")``.
@@ -49,7 +49,7 @@ class FakeTransformTool:
         return {"transformed": str(kwargs["text"]).upper()}
 
 
-def build_transform_worker(db: AsyncBeaverDB) -> ToolAgent:
+def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
     registry = ToolRegistry()
     registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
     return ToolAgent(
@@ -57,7 +57,6 @@ def build_transform_worker(db: AsyncBeaverDB) -> ToolAgent:
         db=db,
         registry=registry,
         tool_type="transform",
-        frames_scope="frames",
     )
 
 
@@ -79,17 +78,17 @@ async def test_decoupled_root_flow_writes_results_and_status_completed(
 ) -> None:
     task_id = await submit("client-a", "transform", {"text": "hello"})
 
-    worker_db = beaver_db
+    agent_db = beaver_db
     board = await results_board()
     _ = board  # ensures the manager's results dict exists
 
-    worker = build_transform_worker(worker_db)
-    steps = await worker.run()
+    agent = build_transform_agent(agent_db)
+    steps = await agent.run()
     assert steps == 1
 
     entry = await status(task_id, "client-a")
     assert entry.state.value == "completed"
-    assert entry.output == {"transformed": "HELLO"}
+    assert entry.output == {"text": "hello", "transformed": "HELLO"}
     assert entry.result_key == f"results:{task_id}"
 
-    assert await board.fetch(task_id) == {"output": {"transformed": "HELLO"}}
+    assert await board.fetch(task_id) == {"output": {"text": "hello", "transformed": "HELLO"}}

@@ -7,18 +7,20 @@
 - **Depends on:** LEG-014 (contract), LEG-011
 
 ## Goal
-Implement the LEG-014 mini-manager: submit, root delivery to `client:{task_id}`,
-termination and the reaper.
+Implement the LEG-014 mini-manager: `submit`, `status`, root result delivery to
+the `results:{task_id}` board and client-owned reading via `status`.
 
 ## Scope
-- **In scope:** `submit`, `status`, internal `client:{task_id}` delivery,
-  termination, reaper.
+- **In scope:** `submit`, `status`, task ownership tagging (`tasks` board),
+  root result on `results:{task_id}`.
 - **Out of scope:** REST (LEG-025), auth (LEG-027).
 
 ## Contract & design
 - Per LEG-014. `status` enforces ownership (client only sees own tasks).
-- Reaper periodic job cancelling `client:{task_id}` agents whose task is
-  already in a terminal state / stuck.
+- `submit` stages the task on the `tasks` board, deposits the root step into
+  the starting agent's queue and returns `task_id` (`<origin>:<uuid>`, LEG-016);
+  the root result is written by the terminating agent to `results:{task_id}`
+  (there is no per-task `client:{task_id}` queue).
 
 ## Interface
 - `submit(client_id, agent, payload) -> task_id`; `status(task_id, client_id)`.

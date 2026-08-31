@@ -2,7 +2,7 @@
 
 Every test that needs the substrate binds ``legio.manager`` to a fresh local
 beaver SQLite database (a temp file) and shares that single ``AsyncBeaverDB``
-connection with agents and the worker — the same decoupling a multi-process
+connection with the agents — the same decoupling a multi-process
 deployment gets by opening the same file. No invented substrate layer exists.
 """
 

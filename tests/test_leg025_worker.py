@@ -1,4 +1,4 @@
-"""Contract tests for LEG-025 — Worker (REST server) over the mini-manager.
+"""Contract tests for LEG-025 — the agent loop over the mini-manager REST.
 
 The REST surface exposes ``POST /submit`` and ``GET /status/{task_id}`` that
 proxy the mini-manager, enforcing ownership (a foreign client's status request
@@ -18,7 +18,6 @@ from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.manager import status, submit
 from legio.tools import ToolRegistry
-from legio.worker import Worker
 
 
 class FlipInput(BaseModel):
@@ -59,7 +58,7 @@ async def test_submit_creates_task_and_status_returns_it(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["task_id"].startswith("T-")
+    assert body["task_id"].startswith("local:")
 
     task_id = body["task_id"]
     st = await client.get(f"/status/{task_id}", params={"client_id": "client-a"})
@@ -104,7 +103,7 @@ async def test_submit_missing_fields_is_rejected(
 
 
 @pytest.mark.asyncio
-async def test_worker_replica_deposits_message_to_completion(
+async def test_agent_loop_deposits_message_to_completion(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     task_id = await submit("client-a", "flip", {"text": "abc"})
@@ -116,13 +115,11 @@ async def test_worker_replica_deposits_message_to_completion(
         db=beaver_db,
         registry=registry,
         tool_type="flip",
-        frames_scope="frames",
     )
-    worker = Worker(agent)
 
-    processed = await worker.process_once()
+    processed = await agent.run()
     assert processed == 1
 
     entry = await status(task_id, "client-a")
     assert entry.state.value == "completed"
-    assert entry.output == {"flipped": "cba"}
+    assert entry.output == {"text": "abc", "flipped": "cba"}

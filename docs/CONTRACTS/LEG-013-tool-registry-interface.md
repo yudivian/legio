@@ -12,7 +12,7 @@ point of `legio`.
 
 ## Scope
 - **In scope:** registration API, resolution by `tool_type`, input/output
-  schema validation, lifecycle (registered at worker startup).
+  schema validation, lifecycle (registered at agent startup).
 - **Out of scope:** tool implementations (consumer side), the ToolAgent
   execution path (LEG-022).
 

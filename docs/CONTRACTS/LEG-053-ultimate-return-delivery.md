@@ -17,8 +17,8 @@ delivery of the final result token.
 
 ## Contract & design
 - `ultimate_return_agent_id` naming: internal (parent PID agent) → deliver to
-  parent queue; `client:{task_id}` → deliver to client pseudo-agent + write
-  `results:{task_id}` (LEG-050).
+  parent queue; `client:{task_id}` → write `results:{task_id}` only (there is
+  no client queue; the client reads the board via `status`, LEG-050).
 - The composite engine chooses delivery precisely from LEG-011 finality.
 
 ## Interface

@@ -10,8 +10,9 @@
   token; there is no central engine driving them.
 - **Composition is a DAG over instances.** Two occurrences of the same pattern
   (`B, B`) are two independent tasks (two messages).
-- **The flow moves through messages in queues and frames in boards**, never
-  through process-resident state.
+- **The flow moves through messages in queues**, never through
+  process-resident state; the accumulated state rides inside the messages
+  themselves (§12 of `docs/AGENT_LIFECYCLE.md`).
 - **Scale = replicas of the same agent** (pool); **federation = nodes sharing
   agents**.
 - **Retry is a field** (`next_run_at`, `attempts`), not a mechanism.
@@ -23,11 +24,11 @@
 ## 1. Layers
 
 ```
-External API      mini-manager (submit/status) + FastAPI
+External API      Runtime (submit/status · synthetic parent · lifecycle ops · CLI/HTTP)
 Federation        catalog · resolver · work-item HTTP · outbox
-Runtime           worker/crew · pools · reaper
-Agents            linguistic · tool · sequence · parallel  (+ base, registry)
-Flow              FlowToken (DAG + position + return) · call-frames
+Lifecycle         AgentRegistry (mirror: catalog + YAML cache) · TaskManager (task engine + reaper)
+Agents            linguistic · tool · sequence · parallel  (+ base)
+Flow              FlowToken (route + position + return) · message-carried state
 Patterns          YAML → PatternSpec → pydantic models (compile-time)
 Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 ```
@@ -40,14 +41,18 @@ Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 `db.queue` / `db.lock` directly.
 
-- **Board** — beaver persistent dict per scope: `db.dict("frames")` (call-frames
-  `{agent}:{task_id}`), `db.dict("results")` (`{task_id}`), `db.dict("tasks")`
-  (mini-manager state). Future scopes: `blackboard:{node}:{task_id}`,
-  `semaphore`, `catalog`, `outbox`.
+- **Board** — beaver persistent dict per scope: `db.dict("results")`
+  (`{task_id}`), `db.dict("tasks")`
+  (Runtime state). Future scopes: `gates` (Runtime-written class gate,
+  read by depositors — AGENT_LIFECYCLE §12.5),
+  `semaphore`, `outbox`, the AgentRegistry's `catalog` / `instances` /
+  `yaml_cache`, and the TaskManager's `tm_tasks` / `tm_control` (see
+  `docs/AGENT_LIFECYCLE.md` §4.8/§6.1).
 - **Queue** — beaver persistent priority queue per agent:
   `db.queue("legio:queue:<agent_id>")`; `get(block=False)` pops destructively and
   raises `IndexError` when empty; `put(item, priority=...)` deposits;
-  `next_run_at` schedules retries with no scheduler.
+  `next_run_at` schedules retries with no scheduler. The TaskManager adds its own
+  two queues — `tm_pending` and `tm_scheduled` (§6.1).
 - **Lock** — beaver lock with TTL + `renew`; it is the *task lease* (keyed on
   the queue item, released on ack). If a replica dies, the lease expires and the
   item becomes reclaimable (at-least-once, R-6).
@@ -60,13 +65,13 @@ beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 
 ## 3. FlowToken — the contract that moves everything
 
-Fields: `route_pattern_names` (the concrete DAG of this leg), `current_index`
+Fields: `route_pattern_names` (the concrete route of this task), `current_index`
 (position), `ultimate_return_agent_id` (where to return), `origin_node_id`
 (author node), `root` (root marker), `task_id` (public).
 
 - **Who builds it**: any starting agent (atomic or composite — §6) is invoked
   through a root step deposited into its queue; the starting agent then
-  concretizes the **root token** for its leg. A **composite** starting agent
+  concretizes the **root token** for the task. A **composite** starting agent
   (sequence or parallel) inserts its sub-DAG into the token; an **atomic**
   starting agent has no sub-DAG — its route reduces to itself and it advances
   solely by position. If it is the root, it sets `root=True` and
@@ -84,7 +89,7 @@ atomic:
   └─ tool        → tool registry (concrete deterministic op, local or remote)
 composite:
   ├─ sequence    → one-by-one; advances current_index
-  └─ parallel    → the only join point; dual queue + call-frame
+  └─ parallel    → the only join point; inbox + gathering queue (§12 AGENT_LIFECYCLE)
 ```
 
 - **Common base** (what truly abstracts all agents): `run()` = polling loop with
@@ -95,9 +100,11 @@ composite:
   the internal resource differs.
 - **Lifecycle (create / enable / disable / destroy)** is governed at two levels:
   the **class** (type + queue) by the catalog registry, and the **instance**
-  (replica) by the runtime supervisor. Disabling a class closes entry but keeps
+  (replica) by the **Runtime** (no "instance supervisor": the Runtime
+  orchestrates materialization over the **TaskManager**, see
+  `docs/AGENT_LIFECYCLE.md` §0/§6.1). Disabling a class closes entry but keeps
   draining pending work; no instances ⇒ class disabled; destroying the class is
-  armageddon (removes spec + queue + all instances). The lifecycle "god" governs
+  armageddon (removes spec + queue + all instances). Lifecycle governance touches
   only existence, never the DAG or routing. See
   `docs/AGENT_LIFECYCLE.md`.
 
@@ -110,8 +117,8 @@ composite:
   tool; each is its own agent/queue, the resource is shared guarded by a
   per-tool concurrency semaphore.
 - **Runtime (ToolAgent)**: resolves `tool_type` against the node's tool
-  registry (loaded at worker startup), validates inputs, executes (async or
-  blocking via `to_thread`), writes into the blackboard under `output_as`, and
+  registry (loaded at agent startup), validates inputs, executes (async or
+  blocking via `to_thread`), writes its output namespaced under `output_as`, and
   completes with an `ExecutionResultMessage`. On failure there is no output;
   retry/DLQ is decided by the orchestration (lease / `next_run_at` /
   `attempts`), never by the tool.
@@ -137,20 +144,25 @@ composite:
 
 ## 7. Task lifecycle
 
-1. Client calls the API → **mini-manager**: creates `task_id`, registers state,
+1. Client calls the API → **Runtime**: creates `task_id`, registers state,
    stages inputs, deposits `ExecutionRequestMessage` into the starting agent's
-   queue.
+   queue (the class entry gate is checked here — `docs/AGENT_LIFECYCLE.md`
+   §5.6/§6.1).
 2. The starting agent (root) takes the message, concretizes the root token and
    walks its flow.
 3. Composite: concretizes its sub-DAG; sequence chains; parallel fans out (each
-   child's dual queue + call-frame in a board).
+   child's route over its own class queue; results gather in the parallel's
+   gathering queue — AGENT_LIFECYCLE §12.4).
 4. Atomic: lingo if linguistic, tool registry if concrete.
 5. Each child returns an `ExecutionResultMessage`; the parallel fans in
-   (dedupe by DAG path, not by agent name), merges the call-frame and continues.
+(dedupe per (parallel, task), bookkeeping `state:parallel:<class>`), merges
+  the message-carried state and continues.
 6. Final step → delivery: internal = deposit into `ultimate_return`; root =
    `results:{task_id}`.
-7. The client polls `status(task_id)` → mini-manager reads boards. No
-   in-memory handles: everything is a board.
+7. The client polls `status(task_id)` → Runtime reads the `tasks`/`results`
+   boards. No in-memory handles: everything is a board. Lifecycle of the agents
+   themselves (not of a task) is governed by the Runtime / AgentRegistry /
+   TaskManager model — `docs/AGENT_LIFECYCLE.md` §0–§6.1.
 
 ## 8. Failure and resilience
 
@@ -172,10 +184,10 @@ composite:
   *acceptor* (executes delegated work), depending on the task. Same codebase,
   different roster and starting agents via configuration only.
 - **Starting agents are entry points** of their own node: only the node's own
-  mini-manager invokes them. They are not delegable; delegation applies to
+  Runtime invokes them. They are not delegable; delegation applies to
   capability agents.
 - Because agent resolution happens *before* deposit (in the author, against the
-  catalog), an acceptor's workers never receive work for a pattern they do not
+  catalog), an acceptor's agents never receive work for a pattern they do not
   serve.
 - **Contract**: a step that needs an absent local agent may be delegated to a
   peer that registers it: a work-item (agent name + inputs) goes over HTTP → is
@@ -205,7 +217,7 @@ configuration, not a handshake.
 **Level 2 — systems using a node.** Each system registered on a node gets its
 own **client token** (`api.clients`), individually revocable: if one system has
 problems, only its token is invalidated, the others keep working. The
-mini-manager API (`submit`/`status`) requires a client token;
+The Runtime API (`submit`/`status`) requires a client token;
 
 ```yaml
 api:
@@ -240,7 +252,7 @@ over the network.
 
 - `main` = starting agents (entry points); `atomic` + `composite` =
   capabilities. `output_schema` → pydantic model at compile time; `output_as` =
-  result namespacing; `input_mapping` = which blackboard keys feed a step.
+  result namespacing; `input_mapping` = which carried-state keys feed a step.
 - Load is **fail-fast** with **cascade invalidation**: a pattern with an invalid
   dependency is deactivated along with everything that depends on it
   transitively. A dry-run validator ships with it.

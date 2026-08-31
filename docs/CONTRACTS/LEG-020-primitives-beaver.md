@@ -1,7 +1,7 @@
 # LEG-020 — Primitives over beaver (implementation)
 
 - **Status:** SUPERSEDED (decision: *no invented substrate layer* — the
-  beaver-backed wrapper was deleted; agents and the mini-manager now call
+  beaver-backed wrapper was deleted; agents and the Runtime now call
   beaver natively, LEG-048)
 - **Rasante:** R-2
 - **GitHub issue:** #12
@@ -12,7 +12,7 @@
 > the three primitives *on top of* beaver is gone because beaver itself provides
 > them. The behaviors this spec pinned (lease TTL + `renew` as the task lease,
 > `next_run_at` scheduling via priority, namespacing, async-only) are now
-> exercised directly in the AgentBase/mini-manager suites against a real beaver
+> exercised directly in the AgentBase/Runtime suites against a real beaver
 > file (see `docs/ARCHITECTURE.md` §2 and `tests/conftest.py`).
 
 ## Goal
@@ -38,8 +38,9 @@ LEG-012 contract.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-020), verbatim:
-- All LEG-012 conformance tests pass in green against real beaver; a
-  `blackboard`, a queue+lock lease with renewal behave as specified.
+- All LEG-012 conformance tests pass in green against real beaver; priority
+  ordering, `next_run_at` retry scheduling, lease TTL + renew, and
+  reclaim-after-expiry each behave as specified.
 
 ## Tests
 - Conformance suite (red-first from LEG-012) run against beaver; lease claim/renew.

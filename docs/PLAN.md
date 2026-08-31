@@ -46,17 +46,35 @@ contract test file that fixes it (red before implementation). **Accept** for
 every contract issue: spec approved (journal) and its contract tests exist and
 are red for the yet-unimplemented surface.
 
-- **LEG-010** Patterns YAML schema (v1): pattern kinds, stages, schemas,
-  `input_mapping`, `output_as`, `main` flag. Incorporates the single-node model
-  validation findings (H1–H4 from
-  `docs/VALIDATIONS/single-node-model.md`):
-  inline stages (parallel auto-named, linguistic self-executed), dotted
-  template paths + system variables (H2), flat-union merge + cumulative
-  sequence (H3), schema compilation with unions/recursion (H4).
+- **LEG-010** Patterns YAML schema (revised → S1): **one agent spec**
+  (`docs/AGENT_LIFECYCLE.md` §4.10), domain-free. A pattern is YAML data; it
+  declares **agents** only. `type` (atomic|composite) × `kind`
+  (tool|linguistic|sequence|parallel) with branch-exclusive fields,
+  structurally enforced; mandatory symmetric entry/output contracts
+  (`input_as`/`input_type`/`input_schema`,
+  `output_as`/`output_type`/`output_schema`; text/json/binary); one reference
+  vocabulary `{from: <alias>.<path>}` | literal | omitted, resolved against the
+  whole preceding chain in scope (not only the immediate predecessor);
+  `parameters` (tool) and `bind` (usage site) wiring; interior↔contract
+  coherence (tool `input_schema` ⊆ registered signature; linguistic prompt
+  variables ↔ `input_schema`; linguistic `output_schema` enforced at runtime);
+  reuse of any definition by `pattern:` + `bind:` with encapsulation,
+  `output_as` uniqueness and cycle rejection; composite output via `emit:`
+  (sequence default = last child); parallel binds only from the composite's
+  `input_as`; `main` as root capability, not position. Inherits H1–H4
+  (`docs/VALIDATIONS/single-node-model.md`) as read semantics: inline stages,
+  flat-merge + `output_as` read namespacing, cumulative sequence.
   - **Accept**: a fixture translating two representative composite patterns
-    into schema-valid YAML v1 loads and validates; a prompt with
-    `{input.payload}`, `{substep.data}`, `{current_date}` fills
-    from the scoped board.
+    into S1 YAML loads and validates (a sequence reusing a tool and a
+    linguistic node with `emit:`; a parallel with `emit:`); a prompt whose
+    variables fill from the entry contract via `bind`; a `{var}` not declared
+    in `input_schema` is a load error; `{from: producer.path}` resolves against
+    any earlier producer in the chain (a 3-step chain proves it) and fails on
+    undeclared aliases/paths; nodes missing either contract are rejected; the
+    same agent bound in two composites with different sources validates in
+    both; a `bind` violating the used agent's entry contract is rejected;
+    tool/linguistic coherence violations are detectable; duplicate `output_as`
+    and cycles are rejected.
 - **LEG-011** FlowToken & messages (v1): fields, semantics, `schema_version`,
   root handling, delivery.
   - **Accept**: serialization/deserialization round-trip preserves all fields;
@@ -93,8 +111,8 @@ are red for the yet-unimplemented surface.
 - **LEG-020** Primitives over beaver (Queue/Board/Lock + lease semantics).
   Superseded by the native-beaver substrate (LEG-048) — the wrapper
   implementation was deleted; its behaviors (lease TTL + renew, `next_run_at`
-  priority, namespacing) are now exercised in the AgentBase/mini-manager suites
-  directly against beaver.
+priority, namespacing) are now exercised in the AgentBase/Runtime suites
+   directly against beaver.
   - **Accept**: priority ordering, `next_run_at` retry scheduling, lease TTL +
     renew, and reclaim-after-expiry each have a passing integration test
     against a temp beaver file.
@@ -112,9 +130,11 @@ are red for the yet-unimplemented surface.
   ownership (LEG-014/017).
   - **Accept**: submitting with token A creates a task owned by A; status with
     a different token (or none) is rejected/empty.
-- **LEG-025** Worker: single replica running one agent.
-  - **Accept**: `legio worker --agent <name>` processes a deposited message to
-    completion; observable state changes in boards.
+- **LEG-025** REST surface over the mini-manager: `submit`/`status` with
+  ownership-aware status; an agent polls its queue and runs to completion.
+  - **Accept**: submitting via the API creates a task owned by the client; a
+    foreign client's status request is denied; the agent loop processes the
+    deposited message to completion with observable state changes in boards.
 - **LEG-026** E2E example: `transform` with a fake tool (domain-free).
   - **Accept**: submitting `transform` through the API yields its output
     in `results:{task_id}`; example is a green test (does not bitrot).
@@ -139,13 +159,14 @@ are red for the yet-unimplemented surface.
 - **LEG-040** SequenceAgent (advance index, chain, continuation).
   - **Accept**: a 3-stage sequence runs to completion on one node; index
     advances exactly once per stage; final stage delivers to parent/client.
-- **LEG-041** ParallelAgent: dual queue, call-frames, fan-out.
+- **LEG-041** ParallelAgent: inbox + gathering queue, fan-out/fan-in.
   - **Accept**: single-node parallel with 3 children completes with all results;
     a missing child result blocks (tolerant policy is R-6).
-- **LEG-042** Fan-in by DAG path + `output_as` merging (H3 semantics).
+- **LEG-042** Fan-in by source (dedupe per (parallel, task)) + `output_as`
+  merging (H3 semantics).
   - **Accept**: two occurrences of the same child pattern in one DAG are
-    distinct tasks (dedupe by path, not agent name); merge is flat-union;
-    collisions resolved by `output_as`.
+    distinct tasks (dedupe per (parallel, task), not by agent name); merge is
+    flat-union; collisions resolved by `output_as`.
 - **LEG-043** Examples `extract_and_summarize` (sequence) and `distribute_summary`
   (parallel), domain-free.
   - **Accept**: both are green tests exercising real composite flows.
@@ -207,13 +228,14 @@ are red for the yet-unimplemented surface.
   instances / destroy class = armageddon" rules) is specified in
   `docs/AGENT_LIFECYCLE.md`. This R-8 section is where it is implemented; LEG-080
   (pools) realizes "multiple instances consume the same class queue".
-- **LEG-080** Pools (`pool_size` replicas per agent).
-  - **Accept**: n replicas on the same queue process n items concurrently; each
-    item leased exactly once; single-replica behavior unchanged.
-- **LEG-081** Worker CLI (typer): run worker, run federation server
-  (config: node id, federation token, client tokens, peer allowlist).
-  - **Accept**: `legio worker ...` and `legio server ...` start, expose
-    `submit`/`status`, and honor the LEG-017 config shape.
+- **LEG-080** Pools (`pool_size` agents per class).
+  - **Accept**: n agents on the same queue process n items concurrently; each
+    item leased exactly once; single-agent behavior unchanged.
+- **LEG-081** Runtime CLI (typer): node bootstrap + `legio agent` lifecycle
+  verbs (config: node id, federation token, client tokens, peer allowlist).
+  - **Accept**: `legio server ...` starts, exposes `submit`/`status`, and honors
+    the LEG-017 config shape; the Runtime lifecycle verbs are reachable via
+    `legio agent ...`.
 - **LEG-082** Graceful shutdown + concurrency semaphores (LLM, per-tool).
   - **Accept**: SIGTERM drains in-flight leases before exit; per-tool
     concurrency cap is honored under load (test with a slow fake tool).

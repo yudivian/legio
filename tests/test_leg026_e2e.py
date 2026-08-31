@@ -1,9 +1,9 @@
 """LEG-026 — End-to-end example: ``transform`` with a fake, domain-free tool.
 
 First real single-node capability over the REST surface. A client submits to the
-``transform`` agent through the API; a ``Worker`` replica (LEG-025) polls the
-agent's queue and runs the registered fake tool; the root result lands in
-``results:{task_id}`` and the client reads it back via ``status``.
+``transform`` agent through the API; the agent polls its own queue and runs the
+registered fake tool; the root result lands in ``results:{task_id}`` and the
+client reads it back via ``status``.
 Boundary is the REST surface; all substrate is shared in-process over a single
 native beaver database (one connection, one manager) as on a single node.
 """
@@ -21,7 +21,6 @@ from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.manager import results_board
 from legio.tools import ToolRegistry
-from legio.worker import Worker
 
 
 class TransformInput(BaseModel):
@@ -46,22 +45,19 @@ class FakeTransformTool:
         return {"transformed": str(kwargs["text"]).upper()}
 
 
-def build_transform_worker(db: AsyncBeaverDB) -> Worker:
+def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
     registry = ToolRegistry()
     registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
-    return Worker(
-        ToolAgent(
-            agent_id="transform",
-            db=db,
-            registry=registry,
-            tool_type="transform",
-            frames_scope="frames",
-        )
+    return ToolAgent(
+        agent_id="transform",
+        db=db,
+        registry=registry,
+        tool_type="transform",
     )
 
 
 @pytest.mark.asyncio
-async def test_transform_e2e_over_rest_and_worker(
+async def test_transform_e2e_over_rest_and_agent(
     caplog: pytest.LogCaptureFixture, beaver_db: AsyncBeaverDB
 ) -> None:
     caplog.set_level(logging.INFO)
@@ -79,22 +75,23 @@ async def test_transform_e2e_over_rest_and_worker(
         assert resp.status_code == 200, resp.text
         task_id = resp.json()["task_id"]
 
-        worker = build_transform_worker(beaver_db)
-        processed = await worker.process_once()
+        agent = build_transform_agent(beaver_db)
+        processed = await agent.run()
         assert processed == 1
 
         st = await ac.get(f"/status/{task_id}", params={"client_id": "client-a"})
         assert st.status_code == 200, st.text
         entry = st.json()
         assert entry["state"] == "completed"
-        assert entry["output"] == {"transformed": "HELLO"}
+        assert entry["output"] == {"text": "hello", "factor": 3, "transformed": "HELLO"}
         assert entry["result_key"] == f"results:{task_id}"
 
         board = await results_board()
-        assert await board.fetch(task_id) == {"output": {"transformed": "HELLO"}}
+        assert await board.fetch(task_id) == {
+            "output": {"text": "hello", "factor": 3, "transformed": "HELLO"}
+        }
 
         log_text = caplog.text
         assert "manager submit" in log_text
         assert "agent run" in log_text
-        assert "worker process" in log_text
         assert "agent root result" in log_text

@@ -7,8 +7,10 @@ the task lease (``db.lock``, LEG-048), dispatches it to the step's job (a
 subclass ``_handle``), applies the ``retry_guard`` / ``monitor`` hooks, and
 routes the outcome — advance to the next stage as an ``ExecutionRequestMessage``,
 or finish by depositing an ``ExecutionResultMessage`` to the parent/client
-(finality by position, LEG-011). Frames and results live on native beaver
-dictionaries (``db.dict``); boards are addressed by their scope name directly.
+(finality by position, LEG-011). The step's input and its accumulated state
+travel inside the messages themselves (AGENT_LIFECYCLE §12.1): there is no
+out-of-message accumulator. ``results`` (``db.dict("results")``)
+is the only board the flow touches, and only for the root/client return.
 
 The actual steps (linguistic, tool, composite) plug in via ``_handle``;
 ``ToolAgent`` (LEG-022) is one such subclass. Failures are never silent
@@ -43,7 +45,6 @@ _EVENT_STEP_DONE = "step_done"
 _EVENT_STEP_ERROR = "step_error"
 _EVENT_IDLE = "idle"
 
-_FRAMES_SCOPE = "frames"
 _RESULTS_SCOPE = "results"
 
 
@@ -55,15 +56,12 @@ class AgentBase:
         *,
         agent_id: str,
         db: AsyncBeaverDB,
-        frames_scope: str = _FRAMES_SCOPE,
         lease_ttl: float = 60.0,
     ) -> None:
         self._agent_id = agent_id
         self._db = db
-        self._frames_scope = frames_scope
         self._lease_ttl = lease_ttl
         self._queue = db.queue(queue_key(agent_id))
-        self._frames = db.dict(frames_scope)
         self._results = db.dict(_RESULTS_SCOPE)
         self._retry_guard: RetryGuard | None = None
         self._monitor: Monitor | None = None
@@ -84,7 +82,7 @@ class AgentBase:
     async def run(self, *, max_steps: int = 100) -> int:
         """Poll the queue until idle or ``max_steps`` reached; return steps done.
 
-        Bounded so a misbehaving step can never starve the worker into an
+        Bounded so a misbehaving step can never starve the agent into an
         infinite busy loop.
         """
         steps = 0
@@ -210,19 +208,6 @@ class AgentBase:
         task_id = request.task_id if request is not None else "?"
         await self._monitor(self._agent_id, task_id, event)
 
-    async def _frame(self, request: ExecutionRequestMessage) -> dict[str, Any]:
-        """Read the staged frame for this agent/task from the frames dictionary."""
-        frame = await self._frames.fetch(f"{self._agent_id}:{request.task_id}", {})
-        return dict(frame or {})
-
-    async def _store_out(
-        self, request: ExecutionRequestMessage, key: str, output: dict[str, Any]
-    ) -> None:
-        """Deep-merge ``output`` under the staged frame's ``key``."""
-        frame = await self._frame(request)
-        frame[key] = output
-        await self._frames.set(f"{self._agent_id}:{request.task_id}", frame)
-
     async def _heartbeat(self, lease: Any) -> None:
         """Renew the item's lease so a live replica keeps it out of reaper.
 
@@ -264,11 +249,12 @@ class AgentBase:
         await self._deliver(next_agent_id, next_request.model_dump(mode="json"))
 
     async def _finish(self, request: ExecutionRequestMessage, output: dict[str, Any]) -> None:
-        """Deposit the ExecutionResultMessage to the return agent.
+        """Route the ExecutionResultMessage to the return agent.
 
         For a root task (``ultimate_return_agent_id == client:{task_id}``) the
-        result is additionally written to ``results:{task_id}`` so the client
-        reads it back via ``status`` (ARCH §6/§7.6, LEG-050). Deliveries are at
+        result is written to ``results:{task_id}`` **instead of** any queue,
+        and the client reads it back via ``status`` (ARCH §6/§7): there is no
+        per-task ``client:{task_id}`` queue to deposit into. Deliveries are at
         least-once; exactly-once ack is R-5 (LEG-050).
         """
         logger.info(
@@ -277,6 +263,10 @@ class AgentBase:
             request.task_id,
             request.ultimate_return_agent_id,
         )
+        if request.ultimate_return_agent_id.startswith("client:"):
+            await self._results.set(request.task_id, {"output": output})
+            logger.info("agent root result agent=%s task=%s", self._agent_id, request.task_id)
+            return
         result = ExecutionResultMessage(
             route_pattern_names=request.route_pattern_names,
             current_index=request.current_index,
@@ -286,9 +276,6 @@ class AgentBase:
             output=output,
         )
         await self._deliver(request.ultimate_return_agent_id, result.model_dump(mode="json"))
-        if request.ultimate_return_agent_id.startswith("client:"):
-            await self._results.set(request.task_id, {"output": output})
-            logger.info("agent root result agent=%s task=%s", self._agent_id, request.task_id)
 
     async def _deliver(self, target_agent_id: str, item: dict[str, Any]) -> None:
         """Put the message onto the target agent's native beaver queue, by name."""

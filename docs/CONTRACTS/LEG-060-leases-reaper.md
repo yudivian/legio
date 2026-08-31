@@ -17,8 +17,8 @@ overall.
 - **Out of scope:** retry attempts counters (LEG-061), DLQ (LEG-062).
 
 ## Contract & design
-- Queue item carries lease lock (per-item id); worker heartbeats (renews TTL)
-  while on `run()`; a reaper sweeps expired leases and re-queues the item.
+- Queue item carries lease lock (per-item id); the agent heartbeats (renews
+  TTL) while on `run()`; a reaper sweeps expired leases and re-queues the item.
 - Exactly-once: `ack` only after the result is durably deposited; re-execution
   after crash is safe because deposit+ack are guarded (idempotency by id).
 

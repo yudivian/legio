@@ -1,13 +1,14 @@
 """Contract tests for LEG-030 — LinguisticAgent via lingo (over native beaver).
 
 The LinguisticAgent is an ``AgentBase`` (LEG-023) that pops a work item from its
-native beaver queue, resolves its prompt template against the scoped ``frames``
-dictionary, calls lingo (an ``LLM``/``MockLLM`` fake) to get a structured
-pydantic record validated against the pattern's declared ``output_model``,
-stages the ``out`` frame and deposits an ``ExecutionResultMessage`` to the
-parent (or advances to the next step of the route). Failures from lingo are
-never silent: an error-carrying result is deposited instead. All substrate is
-native beaver (LEG-048).
+native beaver queue, resolves its prompt template against the message-carried
+payload, calls lingo (an ``LLM``/``MockLLM`` fake) to get a structured pydantic
+record validated against the pattern's declared ``output_model``, and deposits
+an ``ExecutionResultMessage`` to the parent (or advances to the next step of
+the route). The step's state rides in the messages (AGENT_LIFECYCLE §12.1):
+there is no out-of-message staging board. Failures from lingo are never silent:
+an error-carrying result is deposited instead. All substrate is native beaver
+(LEG-048).
 """
 
 from __future__ import annotations
@@ -39,10 +40,6 @@ async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
     return item.data
 
 
-def frames(db: AsyncBeaverDB):
-    return db.dict("frames")
-
-
 def build_agent(*, db: AsyncBeaverDB, lingo_client, output_model, agent_id: str = "summ"):
     return LinguisticAgent(
         agent_id=agent_id,
@@ -50,7 +47,6 @@ def build_agent(*, db: AsyncBeaverDB, lingo_client, output_model, agent_id: str 
         lingo_client=lingo_client,
         prompt_template=PROMPT,
         output_model=output_model,
-        frames_scope="frames",
     )
 
 
@@ -58,7 +54,7 @@ def build_agent(*, db: AsyncBeaverDB, lingo_client, output_model, agent_id: str 
 async def test_linguistic_agent_returns_structured_output_through_lingo(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """The prompt is templated from the scoped frame and lingo returns a record."""
+    """The prompt is templated from the message-carried payload."""
     expected = SummarizeOutput(title="Hello", summary="A greeting", word_count=1)
     lingo_client = MockLLM(responses=[expected])
     task_id = "T-1"
@@ -69,10 +65,9 @@ async def test_linguistic_agent_returns_structured_output_through_lingo(
         ultimate_return_agent_id="main_a",
         origin_node_id="main_a",
         task_id=task_id,
-        payload={},
+        payload={"input": {"text": "hello", "lang": "en"}},
     )
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
-    await frames(beaver_db).set("summ:T-1", {"input": {"text": "hello", "lang": "en"}})
 
     agent = build_agent(db=beaver_db, lingo_client=lingo_client, output_model=SummarizeOutput)
 
@@ -82,11 +77,6 @@ async def test_linguistic_agent_returns_structured_output_through_lingo(
     sent_messages = lingo_client.history[-1]
     assert sent_messages and sent_messages[0].content == ("Summarize hello and en.")
 
-    frame = await frames(beaver_db).fetch("summ:T-1")
-    assert frame is not None
-    assert frame["out"]["title"] == "Hello"
-    assert frame["out"]["word_count"] == 1
-
     result_item = await pop_one(beaver_db, "main_a")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
@@ -95,10 +85,10 @@ async def test_linguistic_agent_returns_structured_output_through_lingo(
 
 
 @pytest.mark.asyncio
-async def test_linguistic_agent_uses_last_request_payload_as_input_when_frame_absent(
+async def test_linguistic_agent_templates_input_from_request_payload(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    expected = SummarizeOutput(title="Fallback", summary="s", word_count=0)
+    expected = SummarizeOutput(title="Input", summary="s", word_count=0)
     lingo_client = MockLLM(responses=[expected])
 
     request = ExecutionRequestMessage(
@@ -106,8 +96,8 @@ async def test_linguistic_agent_uses_last_request_payload_as_input_when_frame_ab
         current_index=1,
         ultimate_return_agent_id="main_a",
         origin_node_id="main_a",
-        task_id="T-fallback",
-        payload={"input": {"text": "fallback payload", "lang": "en"}},
+        task_id="T-input",
+        payload={"input": {"text": "request payload", "lang": "en"}},
     )
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
@@ -116,7 +106,7 @@ async def test_linguistic_agent_uses_last_request_payload_as_input_when_frame_ab
     await agent.process_next()
 
     sent_messages = lingo_client.history[-1]
-    assert sent_messages[0].content == "Summarize fallback payload and en."
+    assert sent_messages[0].content == "Summarize request payload and en."
 
 
 @pytest.mark.asyncio
@@ -146,7 +136,13 @@ async def test_linguistic_agent_advances_when_not_last_step(
     assert advanced_msg.current_index == 1
     assert advanced_msg.route_pattern_names == ("summ", "emit")
     assert advanced_msg.payload == {
-        "input": {"title": "Mid", "summary": "middle step", "word_count": 2}
+        "input": {
+            "text": "x",
+            "lang": "en",
+            "title": "Mid",
+            "summary": "middle step",
+            "word_count": 2,
+        }
     }
 
 

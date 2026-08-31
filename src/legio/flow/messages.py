@@ -1,7 +1,7 @@
 """`legio.flow.messages` — schema version, immutable base and envelope types.
 
 Only two message types exist: ``ExecutionRequestMessage`` (client → root agent)
-and ``ExecutionResultMessage`` (agent/worker → parent or client). ``MessageType``
+and ``ExecutionResultMessage`` (agent → parent or client). ``MessageType``
 discriminates the two. Domain-free: payload/output are opaque dicts.
 """
 
@@ -54,7 +54,7 @@ class ExecutionRequestMessage(ImmutableMessage):
 
 
 class ExecutionResultMessage(ImmutableMessage):
-    """The staged output of a completed frame, deposited to parent/client."""
+    """The output of a completed step, deposited to parent/client."""
 
     message_type: MessageType = MessageType.EXECUTION_RESULT
     output: dict[str, Any] = Field(default_factory=dict)

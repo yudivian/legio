@@ -1,12 +1,17 @@
 # LEG-023 — AgentBase.run()
 
 - **Status:** APPROVED — implementation green (maintainer-led resolution: this
-  spec's acceptance criteria define the issue; PLAN.md replication/lease text is
-  deferred to LEG-025 worker)
+  spec's acceptance criteria define the issue)
 - **Rasante:** R-2
 - **GitHub issue:** #15
 - **Source:** `docs/PLAN.md` (LEG-023)
 - **Depends on:** LEG-011, LEG-014
+
+> **Revised 2026-08-30:** the `run(max_steps=100)` tick is the agent's **own
+> internal loop** (an agent is not a task and not a worker): it polls the
+> class's queue until idle, bounded by `max_steps` so a misbehaving step can
+> never starve the loop. Each dispatch is stateless and carries no lease of its
+> own — the items hold the leases (LEG-060).
 
 ## Goal
 The generalized per-step runner unifying all atomic agents and composites into

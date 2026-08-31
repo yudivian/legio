@@ -3,11 +3,12 @@
 The ToolAgent executes a tool step of a route (LEG-010 H1: inline tool steps
 are auto-named agents with their own queue and join). It is an ``AgentBase``
 (LEG-023): the base provides the uniform lease/dispatch/hook/ack ``run()``
-loop, while ``_handle`` implements the tool-specific job — read the staged
-``input`` frame key, validate it against the tool's ``input_schema``, invoke
-the registered tool as a callable, validate the result against the tool's
-``output_schema``, stage the ``out`` frame and deposit the result to the
-parent (or the client for the last step).
+loop, while ``_handle`` implements the tool-specific job — take the ``input``
+from the request's message-carried payload, validate it against the tool's
+``input_schema``, invoke the registered tool as a callable, validate the result
+against the tool's ``output_schema``, and advance/finish (AGENT_LIFECYCLE
+§12.1: the step's state rides in the messages — there is no out-of-message
+staging board).
 
 Schema failures on either edge are never silent: an error-carrying result is
 deposited instead (see AGENTS.md rule 9).
@@ -20,7 +21,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from legio.agents.base import AgentBase
-from legio.flow import ExecutionRequestMessage
+from legio.flow import ExecutionRequestMessage, merge_carried
 from legio.tools import Tool, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -36,13 +37,11 @@ class ToolAgent(AgentBase):
         db: Any,
         registry: ToolRegistry,
         tool_type: str,
-        frames_scope: str = "frames",
         lease_ttl: float = 60.0,
     ) -> None:
         super().__init__(
             agent_id=agent_id,
             db=db,
-            frames_scope=frames_scope,
             lease_ttl=lease_ttl,
         )
         self._registry = registry
@@ -51,12 +50,10 @@ class ToolAgent(AgentBase):
         self._input_schema, self._output_schema = registry.schemas(tool_type)
 
     async def _handle(self, request: ExecutionRequestMessage) -> None:
-        frame = await self._frame(request)
-
         error: str | None = None
         validated_output = None
         try:
-            raw_input = frame.get("input", request.payload.get("input", {}))
+            raw_input = request.payload.get("input", {})
             validated_input = self._input_schema.model_validate(raw_input)
             logger.debug("tool input ok agent=%s task=%s", self._agent_id, request.task_id)
             callable_tool = cast(Callable[..., object], self._tool)
@@ -76,12 +73,12 @@ class ToolAgent(AgentBase):
             return
 
         output = validated_output.model_dump()
-        await self._store_out(request, "out", output)
+        carried = merge_carried(request.payload.get("input", {}), output)
         is_last = request.current_index >= len(request.route_pattern_names) - 1
         if is_last:
-            await self._finish(request, output)
+            await self._finish(request, carried)
         else:
-            await self._advance(request, output=output)
+            await self._advance(request, output=carried)
 
 
 __all__ = ["ToolAgent"]

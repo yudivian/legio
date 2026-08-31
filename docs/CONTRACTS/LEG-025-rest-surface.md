@@ -1,4 +1,4 @@
-# LEG-025 — Worker (REST server)
+# LEG-025 — REST surface over the mini-manager
 
 - **Status:** DRAFT (awaiting maintainer approval)
 - **Rasante:** R-2
@@ -13,7 +13,10 @@ systems, with ownership-aware status.
 ## Scope
 - **In scope:** `POST /submit`, `GET /status/{task_id}`, ownership checks.
 - **Out of scope:** auth middleware (LEG-027) — endpoints exist behind the
-  later guard; federation endpoints (R-9).
+  later guard; federation endpoints (R-9); the runtime lifecycle HTTP surface
+  (`POST /agent/class` takes the pattern as `{spec}` **YAML** data, §4.8 of
+  AGENT_LIFECYCLE) — that is the Runtime's public face (LEG-081),
+  not this contract.
 
 ## Contract & design
 - Endpoints call mini-manager; `status` refuses access to a task owned by
