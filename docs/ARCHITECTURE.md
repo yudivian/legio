@@ -11,8 +11,8 @@
 - **Composition is a DAG over instances.** Two occurrences of the same pattern
   (`B, B`) are two independent tasks (two messages).
 - **The flow moves through messages in queues**, never through
-  process-resident state; the accumulated state rides inside the messages
-  themselves (§12 of `docs/AGENT_LIFECYCLE.md`).
+  process-resident state; each step builds a new `payload` that travels
+  inside the messages themselves (§12 of `docs/AGENT_LIFECYCLE.md`).
 - **Scale = replicas of the same agent** (pool); **federation = nodes sharing
   agents**.
 - **Retry is a field** (`next_run_at`, `attempts`), not a mechanism.
@@ -28,7 +28,7 @@ External API      Runtime (submit/status · lifecycle ops · CLI/HTTP)
 Federation        catalog · resolver · work-item HTTP · outbox
 Lifecycle         AgentRegistry (mirror: catalog + YAML cache) · TaskManager (task engine + reaper)
 Agents            linguistic · tool · sequence · parallel  (+ base)
-Flow              FlowToken (level_route + current_index + end_of_level_queue + level) · message-carried state
+Flow              FlowToken (level_route + current_index + end_of_level_queue + level) · message payload
 Patterns          YAML → PatternSpec → pydantic models (compile-time)
 Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 ```
@@ -41,15 +41,15 @@ Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 `db.queue` / `db.lock` directly.
 
-- **Board** — beaver persistent dict per scope: `db.dict("tasks")`
-  (Runtime state). Future scopes: `gates` (Runtime-written class gate,
-  read by depositors — AGENT_LIFECYCLE §12.5),
-  `semaphore`, `outbox`, the AgentRegistry's `catalog` / `instances` /
-  `yaml_cache`, and the TaskManager's `tm_tasks` / `tm_control` (see
-  `docs/AGENT_LIFECYCLE.md` §4.8/§6.1). There is **no** ``results`` return
-  board: the final result is delivered to the **final-result queue**
-  (Schema 2) — the Runtime owns a per-task final-result queue that the submit
-  sets as the root `end_of_level_queue`.
+- **Registry** — beaver persistent dict per scope: `db.dict("tasks")`
+  (the TaskRegistry, Runtime-written, per `legio.manager.task_registry()`).
+  Future scopes: `gates` (Runtime-written class gate, read by depositors —
+  AGENT_LIFECYCLE §12.5), `semaphore`, `outbox`, the AgentRegistry's
+  `catalog` / `instances` / `yaml_cache`, and the TaskManager's `tm_tasks` /
+  `tm_control` (see `docs/AGENT_LIFECYCLE.md` §4.8/§6.1). There is **no**
+  ``results`` return store: the final result is delivered to the
+  **final-result queue** (Schema 2) — the Runtime owns a per-task final-result
+  queue that the submit sets as the root `end_of_level_queue`.
 - **Queue** — beaver persistent priority queue per agent:
   `db.queue("legio:queue:<agent_id>")`; `get(block=False)` pops destructively and
   raises `IndexError` when empty; `put(item, priority=...)` deposits;
@@ -59,8 +59,8 @@ beaver primitives by name, exactly as castor's Manager calls `db.dict` /
   the queue item, released on ack). If a replica dies, the lease expires and the
   item becomes reclaimable (at-least-once, R-6).
 - The **only** key namespace legio invents is the per-agent queue name
-  (`legio:queue:<agent>`, `legio.naming.queue_key`); boards are beaver dicts
-  addressed by scope name directly.
+  (`legio:queue:<agent>`, `legio.naming.queue_key`); registries are beaver
+  dicts addressed by scope name directly.
 - **Messages** — `ExecutionRequestMessage` (starts/deposits a step) and
   `ExecutionResultMessage` (returns), always carried as queue item payloads
   (`model_dump(mode="json")`).
@@ -78,15 +78,15 @@ a branch or sub-sequence — classes, not global patterns), `current_index`
 (queue at the end of this level's sequence), `level` (branch-depth counter,
 starts 1), `launcher_class` (class that started the flow; constant,
 informational), `task_id` (public), `message_type` (execution_request |
-execution_result), `payload` (the carried data — single container for both
+execution_result), `payload` (the data — single container for both
 roles).
 
 - **Who builds it**: the **submit** seeds the flow on a `main` agent in **level
-  1** with `end_of_level_queue` = the **final-result queue** (the board-free
-  equivalent of the old results board; there is no `client:{task_id}` queue and
-  no `results` board — the final result is delivered to the final-result queue,
-  Schema 2 / addendum AL). The flow creator assigns destinations; the agent
-  never decides where to deposit (addenda AJ/AL).
+  1** with `end_of_level_queue` = the **final-result queue** (there is no
+  `client:{task_id}` queue and no `results` store — the final result is
+  delivered to the final-result queue, Schema 2 / addendum AL). The flow
+  creator assigns destinations; the agent never decides where to deposit
+  (addenda AJ/AL).
 - **"Is it the flow end?" is derived from position + `level`**, not from a flag:
   end-of-sequence (`current_index == len(level_route)-1`) **and** `level == 1`
   ⇒ final (deliver to `end_of_level_queue` = final-result queue). End-of-level
@@ -132,7 +132,8 @@ composite:
 ## 5. The Tool
 
 - **Definition**: an opaque, substitutable execution resource. It does not know
-  about agents or queues; only `input_schema`/`output_schema` (pydantic).
+  about agents or queues, and it does **not** declare its input/output capacity —
+  the consuming agents declare it via `output_as`/`output_schema` (Schema 3).
 - **Declaration**: Schema 3 (`available_tools`) maps each tool name to
   `implementation` + `policy {timeout, retries}`. An atomic `kind: tool` pattern
   references the resource via `tool: <name>` and describes its call via the
@@ -141,13 +142,14 @@ composite:
   `output_schema`. Several patterns may share a tool; each is its own agent/
   queue, the resource is shared guarded by a per-tool concurrency semaphore.
 - **Runtime (ToolAgent)**: resolves `tool: <name>` against the node's
-  `available_tools` registry (the tool declares its input/output capacity via
-  `input_schema`/`output_schema`), validates inputs, executes (async or blocking
-  via `to_thread`), writes its output namespaced under `output_as`, and completes
-  with an `ExecutionResultMessage`. A tool does **not** declare output capacity in
-  the pattern — the consuming agents declare it via `output_as`/`output_schema`
-  (Schema 3). On failure there is no output; retry/DLQ is decided by the
-  orchestration (lease / `next_run_at` / `attempts`), never by the tool.
+  `available_tools` registry (loaded dynamically), resolves the terse
+  `parameters` against the incoming payload, validates the call against the tool's
+  signature **in execution** (the tool's contract is not verifiable at load),
+  executes (async or blocking via `to_thread`), and bounds the output under the
+  agent's `output_as`/`output_schema` — the consuming agents, not the tool,
+  declare output capacity (Schema 3). It completes with an
+  `ExecutionResultMessage`. On failure there is no output; retry/DLQ is decided
+  by the orchestration (lease / `next_run_at` / `attempts`), never by the tool.
 - **lingo is bounded to linguistic agents.** Concrete agents never pass through
   it. lingo's tool-calling is reserved for a future agentic path where the LLM
   chooses a tool — not the deterministic case.
@@ -163,7 +165,7 @@ composite:
   token; the **submit** seeds the flow in level 1 with `end_of_level_queue` =
   the **final-result queue**). The only contract difference: the flow is born on
   a `main` agent and its final result is delivered to the final-result queue —
-  there is no `results:` board and no `client:{task_id}` queue (Schema 2).
+  there is no `results:` store and no `client:{task_id}` queue (Schema 2).
 - **Capability**: only invoked by another agent through a queue deposit; returns
   along its `end_of_level_queue` (the creator's gathering queue for a branch, or
   the final-result queue at flow end). A composite delegated to another node is
@@ -185,10 +187,10 @@ composite:
 4. Atomic: lingo if linguistic, tool registry if concrete.
 5. Each branch returns through its `end_of_level_queue` (the parallel's gathering
    queue); the parallel fans in (dedupe per (parallel, task), bookkeeping
-   `state:parallel:<class>`), merges the token-carried state and resumes its
-   level.
+   `state:parallel:<class>`), builds the branch results into its payload and
+   resumes its level.
 6. **Flow end** = end-of-sequence AND `level == 1` → deliver the final result to
-   `end_of_level_queue` = the **final-result queue** (no `results:` board, no
+   `end_of_level_queue` = the **final-result queue** (no `results:` store, no
    `client:` queue). End-of-level with `level > 1` → branch close to the
    creator's gathering queue.
 7. The client polls `status(task_id)` → Runtime reads the final result from the
@@ -277,7 +279,7 @@ operator.
 
 **Threat model accepted**: compromised client → revoke its token (blast radius =
 one system); compromised node → rotate the federation token in all nodes.
-Internal state (queues, boards, beaver) is local to the node and never served
+Internal state (queues, registries, beaver) is local to the node and never served
 over the network.
 
 ## 11. Patterns (YAML)
@@ -297,7 +299,7 @@ over the network.
 
 | Capability | Library |
 |---|---|
-| Queues/boards/locks | `beaver-db` |
+| Queues/registries/locks | `beaver-db` |
 | LLM / linguistic agents | `lingo-ai` |
 | Types/validation/config | `pydantic` (+ `pydantic-settings`) |
 | API + federation endpoints | `fastapi` + `uvicorn` |
