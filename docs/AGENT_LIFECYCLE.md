@@ -396,21 +396,27 @@ note ("already exists", not `409`); destroy of a non-existent class → `200`
 
 Also a thin wrapper — no extra logic.
 
-### 4.10 The pattern schema (S1) — one agent spec, contracts, binding, reuse
+### 4.10 The pattern schema (S1) — one agent spec, mandatory contracts, terse call
+
+> **Reconciled against §4.11 Schema 1 (Session 14).** The old draft's `children`,
+> `emit`, `bind` and `{from:}` vocabulary is **not** approved (maintainer
+> ruling). This section now states the reconciled S1: `sequence`/`parallel`,
+> terse tool `parameters`, mandatory symmetric contracts, no magic composition.
+> §4.11 Schema 1 is the compact normative reference; this section expands it.
 
 A pattern is **YAML data** (rule 7) defining **agents** — the only first-class
 notion of this design. There is **one** agent specification shared by every
 agent (tool, linguistic, sequence, parallel); the kinds differ only in their
 **interior** — what executes — never in their contract or in how they are wired
-into a flow. The pattern **declares**; the resource (the code) **defines** its
-contract (S2); config/registration (S3) binds name → implementation + policy.
-The shape language inside the schemas (S5) supports
+into a flow. The pattern **declares**; the code resource defines the tool's
+signature; Schema 3 (`available_tools`) maps name → implementation + policy.
+The shape language inside the schemas supports
 string/number/integer/boolean/array/object, `required`, `properties` and
 `default`. The reference model's flat merge + `output_as` namespacing is
 inherited as *read semantics*, but S1 replaces its implicit names with declared
-aliases (§4.10.2) and its `inputs` projection / `audio_path` hardcode with
-`parameters`/`bind` (§4.10.4). No consumer domain, code name or resource
-contract appears in a pattern (rule 7).
+aliases (§4.10.2) and its `inputs` projection with the terse `parameters` call
+(§4.10.4). No consumer domain, code name or resource contract appears in a
+pattern (rule 7).
 
 #### 4.10.1 The schema (one specification for every agent)
 
@@ -424,7 +430,7 @@ main: bool                                    # optional; root capability, NOT p
 # Entry contract — MANDATORY for every agent
 input_as: <alias>                             # names the incoming payload space; no magic word
 input_type: text | json | binary
-input_schema:                                 # mandatory only when input_type: json (S5)
+input_schema:                                 # mandatory (all agents; text has no schema)
   type: object
   required: [<var>]
   properties:
@@ -433,18 +439,15 @@ input_schema:                                 # mandatory only when input_type: 
 # Output contract — MANDATORY for every agent
 output_as: <alias>                            # names the deposited payload space
 output_type: text | json | binary
-output_schema:                                # mandatory only when output_type: json (S5)
+output_schema:                                # mandatory (all agents; text has no schema)
 
 # Interior — exactly one, by kind
-tool: <registered-tool-name>                  # kind: tool
+tool: <available_tools-key>                   # kind: tool; the CALL + the code's signature
+parameters:                                   # kind: tool; terse call (§4.10.4)
+  <arg>: <dotted.path | literal>              #   no {from:}, {value:}, {default:}
 prompt: "<template with {var}>"               # kind: linguistic
-children: [ ... ]                             # kind: sequence | parallel
-emit: { <field>: {from: <child-output>} }     # composite (optional; see 4.10.6)
-
-# At the usage site (inside a composite's children)
-- pattern: <any-agent-name>
-  bind:
-    <var>: {from: <producer>.<path>} | <literal>
+sequence: [ ... ]                             # kind: sequence (refs pattern:<name> or inline w/ name)
+parallel: [ ... ]                             # kind: parallel (children bind only from input_as)
 ```
 
 **Branch-exclusive fields, structurally enforced.** `type: atomic` → `kind:
@@ -452,7 +455,8 @@ tool` or `kind: linguistic`; `type: composite` → `kind: sequence` or `kind:
 parallel`. A tool branch cannot carry `prompt`; a linguistic branch cannot
 carry `tool`; atomic kinds are exclusive (a step is either a tool or a prompt —
 never both). Crossed `type × kind`, a missing `kind`, both work keys on one
-atomic, or `type: parallel` (a reference-model bug) are rejected at parse.
+atomic, `parallel`+`sequence` together, a schema on a `text` type, a tool
+without `tool`, or a linguistic without `prompt` are rejected at parse.
 Discriminated union — nothing is inferred by key presence.
 
 #### 4.10.2 Mandatory symmetric contracts
@@ -460,13 +464,24 @@ Discriminated union — nothing is inferred by key presence.
 Every agent — atomic or composite, tool, linguistic, sequence or parallel —
 declares an **entry contract** (what it consumes: `input_as`, `input_type`,
 `input_schema`) and an **output contract** (what it produces: `output_as`,
-`output_type`, `output_schema`). `input_type`/`output_type` ∈ {text, json,
-binary} decide **where a value lives**: text → the payload *is* the string;
-json → values are fields of the declared schema; binary → the payload is the
-blob (or its reference). A `text` payload has no schema. Schemas validate at
-the boundary (rule 9), and the contracts make **composability checkable**: a
-use's `bind` must satisfy the used agent's entry contract, and every agent's
-output becomes a producer for its scope's chain.
+`output_type`, `output_schema`). The full triples are **mandatory for every
+agent**, with strict symmetry and no exceptions (addendum T #1). `input_type`/
+`output_type` ∈ {text, json, binary} decide **where a value lives**: text → the
+payload *is* the string; json → values are fields of the declared schema;
+binary → the payload is the blob (or its reference). A `text` payload has no
+schema. Schemas validate at the boundary (rule 9), and the contracts make
+**composability checkable**: a use's `parameters`/`sequence` must satisfy the
+used agent's entry contract, and every agent's output becomes a producer for
+its scope's chain.
+
+**Composition is contract compatibility, not exact subset (maintainer
+precision, addendum AY).** The relationship between a step's input and a
+(previous) step's output is **not** that one is an *exact subset* of the other.
+It is **contract compatibility**: the consuming step's entry contract must be
+*satisfiable* by what the producer's output guarantees — the fields it consumes
+exist with the promised types. `fetch` yields `{body: string}`; a following step
+whose contract demands `{url: string}` cannot consume it (composability check
+fails), while one demanding `{body: string}` can.
 
 **`input_as` is the anti-convention rule.** The first segment of every read is
 a **declared alias** — a node's `input_as` or a producer's `output_as` — never
@@ -474,47 +489,60 @@ a reserved word such as "input". Because it is mandatory and declared, a loader
 can resolve and verify every reference; an unresolved alias or path is a **load
 error** (rule 9), never a silent convention.
 
-#### 4.10.3 One reference vocabulary
+#### 4.10.3 The terse call vocabulary
 
-A value source is exactly one of: `{from: <alias>.<path>}` (a producer in
-scope), a **literal** (a value fixed in this pattern/call), or **omitted** (the
-code's default / the declared `default`). There is no other read mechanism and
-no positional role: `{from:}` resolves against **the whole chain that precedes
-the node in its scope** — the encapsulating composite's `input_as` or the
-`output_as` of **any** earlier child of that scope, not only the immediate
-predecessor. `.path` must exist in the producer's declared `output_schema`, and
-the producer's output type must be statically assignable to the consuming
-variable. Literal and omitted parameters need no producer. Failures are load
-errors.
+A tool's `parameters` value is **exactly one** of: a **plain dotted path** (a
+producer reference, resolved against the chain, §4.10.4), or a **literal** (a
+value fixed in this pattern/call). There is no `{from:}`, `{value:}` or
+`{default:}` wrapper — those verbosity forms are not approved; the default lives
+in the code's signature and is **never written**. A dotted path resolves against
+**the whole chain that precedes the node in its scope** — the encapsulating
+composite's `input_as` or the `output_as` of **any** earlier child of that
+scope, not only the immediate predecessor. `.path` must exist in the producer's
+declared `output_schema`, and the producer's output type must be statically
+assignable to the consuming variable. Literal values need no producer. Failures
+are load errors.
 
 #### 4.10.4 Interior and its coherence with the contract
 
-- **Tool.** `tool: <name>` selects a registered implementation (S2/S3);
-  `parameters:` binds **each parameter of the executed code's signature** to a
-  source of §4.10.3 (`{from:}` against the chain, a literal, or omitted for the
-  code's default). The tool's `input_schema` must be a valid subset of the
-  registered signature — checked at load against the registry (S2), so the
-  declared contract can never be fiction.
+- **Tool.** `tool: <name>` selects a Schema-3 `available_tools` resource;
+  `parameters:` is the **terse call** — each parameter of the executed code's
+  signature is a dotted path (resolve against the chain, §4.10.3) or a literal;
+  never `{from:}`/`{value:}`/`{default:}`; omitted means the code's default.
+  The tool's `input_schema` must be a valid subset of the registered signature —
+  checked at load against the registry, so the declared contract can never be
+  fiction. Static (load) verification is the flow-against-itself; verification
+  against the tool's signature is execution-time (Schema 3).
 - **Linguistic.** `prompt:` is a template whose `{var}` placeholders **are**
   the entry contract: every template variable must exist in `input_schema` and
   every declared variable must be used or flagged. The output contract is a
   declaration, not a code signature — it must be **enforced at runtime**
   (structured output / validation against `output_schema`), or the contract is
   a promise that nothing checks (rule 9).
-- **Composites.** `children:` are references (`pattern: <name>`) or full inline
-  nodes (must carry `name`). Their contract comes from their children and
-  `emit:` (§4.10.6).
+- **Composites.** `sequence:`/`parallel:` are references (`pattern: <name>`) or
+  full inline nodes (must carry `name`). A sequence lists the ordered classes of
+  its level; a parallel lists its branches. There is no `emit:` and no
+  "last child renamed": **how a composite combines its children's results into
+  its own output is the agent's implementation** (P-A ruling, addendum AT), and
+  the declared `output_as`/`output_schema` is the contract that implementation
+  must satisfy.
 
 #### 4.10.5 Reuse belongs to every definition, and encapsulation
 
 Any agent — atomic or composite — is defined once, **source-agnostic**, and is
 **wired at the usage site**: a composite references it with `pattern: <name>`
-and binds each required input variable to a source of its own chain (§4.10.3).
-The same definition used in different composites can bind the same variables to
-different producers; the interior never changes. A `bind` keeps its used
-agent's contract: keys are a subset of its declared properties, `required`
-covered unless a `default` exists, extras are load errors; the used agent's
-`output_as` becomes a producer for later siblings.
+and its `parameters`/`sequence`/`parallel` resolve each required input to a
+source of its own chain (§4.10.3). The same definition used in different
+composites can bind the same variables to different producers; the interior
+never changes. The **same agent may appear more than once in a flow by
+position** — distinguished by `current_index` — unless inside its own
+definition (cycle → infinite recursion, rejected at catalog load). Reuse is
+constrained by **contract composability** (§4.10.2): repeated identical steps
+only chain if each one's entry contract is satisfiable by the previous output,
+so the apparent ``output_as`` collision dissolves (addendum AX). The used
+agent's contract is kept: keys are a subset of its declared properties,
+`required` covered unless a `default` exists, extras are load errors; the used
+agent's `output_as` becomes a producer for later siblings.
 
 Encapsulation: an agent's interior is **opaque** — a consumer sees only its
 `output_as`/`output_schema`, never its internal names (those are checked
@@ -522,42 +550,41 @@ against the agent's own scope). **`output_as` is unique within its scope**
 (collision = load error). Composition **cycles** (an agent transitively
 containing itself) are detected at catalog load and rejected.
 
-#### 4.10.6 Composite output
+#### 4.10.6 Composite output (no `emit`)
 
-A sequence's output contract is the deposit of its **last** child, renamed to
-its `output_as` — or an explicit `emit:` map when the output is composed from
-more than one child or from a new shape:
+A composite declares its output contract (`output_as`/`output_type`/
+`output_schema`) up front. **How** it produces that output from its children's
+results is **the agent's implementation** (P-A ruling, addendum AT) — there is
+no `emit:` map and no "last child renamed" rule. A sequence runs its ordered
+classes and its implementation assembles the declared output; a parallel fans
+out to its branches, gathers their results on its gathering queue, and its
+implementation assembles the declared output from them. The contract is the
+guarantee the implementation must satisfy; nothing more is specified.
 
-```yaml
-output_as: note_result
-output_schema: {required: [summary], properties: {summary: string}}
-emit:
-  summary: {from: summarize.out}
-```
-
-A parallel's output is **always** declared through `emit:` (there is no "last
-child"). Parallel children bind **only** from the composite's `input_as`; any
-serial dependency between branches is expressed as a `sequence` nested inside a
-branch (no hidden ordering, no races).
+A parallel's children bind **only** from the composite's `input_as`; any serial
+dependency between branches is expressed as a `sequence` nested inside a branch
+(no hidden ordering, no races).
 
 #### 4.10.7 `main` = root capability, not position
 
-`main: true` marks an agent as a valid `submit` entry (token born root,
-`ultimate_return_agent_id = client:{task_id}`). A `main` agent may also appear
+`main: true` marks an agent as a valid `submit` entry. At submit the flow is
+seeded on the `main` agent in **level 1** with `end_of_level_queue` set to the
+**final-result queue** (Schema 2; addendum AM). A `main` agent may also appear
 in the middle of another DAG (`pattern: <name>`): there it executes its
 functionality as part of the enclosing flow and advances, returning to the
 client only when the flow started at it. A catalog may declare several `main`
-agents. `main` never changes the contract or the binding mechanism.
+agents. `main` never changes the contract or the calling mechanism; it is
+identity/capability, not position.
 
 #### 4.10.8 Checkable composability (redundancy against the silent)
 
 Because every agent declares its entry and output contracts, the loader
-verifies the catalog statically: every `bind`/`parameters` reference resolves
-against a declared producer in the chain; every use satisfies the used agent's
-entry contract with statically compatible types; `output_as` names are unique
-per scope; interiors cohere with their contracts (vocabulary above); and there
-are no cycles. A catalog with an invalid spec **fails at load** (rule 9;
-LEG-071 dry-run) — nothing silently miswired ever runs.
+verifies the catalog statically: every `parameters`/`sequence`/`parallel`
+reference resolves against a declared producer in the chain; every use satisfies
+the used agent's entry contract with statically compatible types; `output_as`
+names are unique per scope; interiors cohere with their contracts (vocabulary
+above); and there are no cycles. A catalog with an invalid spec **fails at
+load** (rule 9; LEG-071 dry-run) — nothing silently miswired ever runs.
 
 ---
 
@@ -566,10 +593,10 @@ LEG-071 dry-run) — nothing silently miswired ever runs.
 > **Status.** This section records the schemas **as they stand now** (Session 14,
 > reviewed in-session, journals 2026-08-31 addenda AB–AP). They are the agreed
 > vocabulary and are expected to be **revised after the S4 simulation** if it
-> exposes defects. `§4.10` above is the previously-landed S1 draft and still
-> contains `emit`/`bind`/`children`, which the maintainer confirmed are **not**
-> approved; §4.10 shall be reconciled against this section (and the addenda
-> K/M/N) before S1 is considered approved. English-only, per AGENTS.md.
+> exposes defects. `§4.10` above has been **reconciled** against this section and
+> the addenda K/M/N (no more `emit`/`bind`/`children`). The S4 simulation (run
+> 1–4, addenda AS–AZ) exposed **no remaining problems**; the vocabulary below
+> stands validated. English-only, per AGENTS.md.
 
 ### Schema 1 — the agent pattern (S1)
 
@@ -1152,33 +1179,42 @@ No disablement-history is recorded; the live catalog is what guides decisions.
 
 ## 12. Execution mechanics and the lifecycle × execution handshake
 
+> **Reconciled against §4.11 Schema 2 (Session 14).** The old wording
+> (`route_pattern_names`, `ultimate_return_agent_id`, "results board",
+> `client:{task_id}` root return) is superseded. The token now carries
+> `level_route` (per-level), `current_index`, `end_of_level_queue`, `level`,
+> `launcher_class`; the destination is by position + `level`, and the final
+> result goes to the **final-result queue** (no board, no `client:` return).
+
 This section specifies the **runtime flow of a task** and how it meets the
 class lifecycle (create / enable / disable / destroy). It is the execution
 counterpart of §0-§8, and it is written so the decoupling rules cannot be
-re-learned wrong: the flow is **forward-only (a DAG)**, state travels **in the
-message**, and the only per-class data are a queue and (where relevant) a
-gathering queue and a gate — never an accumulator "board".
+re-learned wrong: the flow is **forward-only (a DAG, per level)**, state travels
+**in the message** (Schema 2 token), and the only per-class data are a queue and
+(where relevant) a gathering queue and a gate — never an accumulator "board".
 
-### 12.1 Message-carried state: state lives in the messages, never in a board
+### 12.1 Message-carried state: state lives in the messages/token, never in a board
 
-The accumulated state of a task travels **inside the messages themselves**,
-exactly as in the reference model (`voice-notes-api`):
-an `ExecutionRequestMessage` carries `payload` (the inputs for the step) and
-the flow token; an `ExecutionResultMessage` carries `output` (the partial
-result of a child, or the error of a failed step). There is **no** board
-that accumulates per-agent/task state out of the messages (see
+The accumulated state of a task travels **inside the token** (Schema 2) exactly
+as in the reference model (`voice-notes-api`): the message carries `payload`
+(the carried data — the single container for both request and result roles) and
+the flow fields (`level_route`, `current_index`, `end_of_level_queue`, `level`,
+`launcher_class`, `task_id`, `message_type`, `schema_version`). There is **no**
+board that accumulates per-agent/task state out of the token (see
 `docs/JOURNALS/2026-08-30.md`, execution-mechanics thread); the message payload
 is the state — polling-only, nothing central, nothing staged out-of-message for
-later merge.
+later merge. `root` lives in the FlowToken (subclassing the message), not in the
+queue message (Schema 2 / addendum AJ).
 
 ### 12.2 One inbox queue per class; every agent of the class polls it
 
 - Every class has exactly **one inbox queue** (`legio:queue:<class>`); all of
   its agents (instances) poll and consume that same queue.
 - Agents are **interchangeable, stateless** consumers of the unit of work the
-  class knows; an agent learns *what to do, where it is, and whom to return
-  to* **only from the message + token** it just consumed (CPS continuation,
-  ARCH §3). There is no god agent, no per-task queue, no engine driving steps.
+  class knows; an agent learns *what to do, where it is, and where the level
+  ends* **only from the message + token** it just consumed (Schema 2: position
+  in `level_route`, `level`, and the `end_of_level_queue` the flow creator
+  assigned). There is no god agent, no per-task queue, no engine driving steps.
 - The **agent's internal loop** (LEG-023, `AgentBase.run`) is the unit a
   brought-up agent executes per class: poll **one** due item from the class's
   inbox (`get(block=False)` → `IndexError` = idle, returns; rule 8) and process
@@ -1196,45 +1232,66 @@ collapse one physical queue with message-type dispatch — that is an
 implementation detail, not the model):
 
 - **Sequence.** Pure forward pass: nothing returns to the sequence itself. The
-  last processor **deposits into the next class's queue**; if it is the final
-  step of the route it deposits the result to `ultimate_return_agent_id`
-  (or, for a root, the results board). **No gathering queue.**
+  step advances **by position**: if `current_index < len(level_route)-1` the next
+  step deposits into class `level_route[current_index+1]`; if it is the
+  **end-of-level** (`current_index == len-1`) it deposits to
+  `end_of_level_queue`. **No gathering queue.**
 - **Parallel.** Two queues in the model: the class **inbox** and a
   **gathering queue** for the fan-in of the branched tasks (§12.4). The second
   queue belongs to the parallel class, not to an individual task, not to a
-  parent.
+  parent. The parallel's `end_of_level_queue` **is** its gathering queue in the
+  tokens it fans out (Schema 2): branches return there by position/level.
 
 Both composites are themselves classes with their own queue/instances (§7,
 dependencies); a composite is invoked like any capability agent — through its
 inbox.
 
-### 12.4 The flow: one `_advance_flow`, fan-out and fan-in
+### 12.4 The flow: one advancement rule, fan-out and fan-in
 
-**Single advancement mechanism.** Every agent (atomic and composite) implements
-the same continuation logic, forward-only over the route carried by the token:
+**Single advancement mechanism (Schema 2).** Every agent (atomic and composite)
+implements the same continuation logic, forward-only **by position + level**
+over the token:
 
 ```
-for the current step (route[current_index]):
+advance(request) for the current step (level_route[current_index]):
   next_index = current_index + 1
-  if next_index < len(route_pattern_names):
-      deposit an ExecutionRequestMessage into the next class's queue
-  elif ultimate_return_agent_id:
-      deposit an ExecutionResultMessage(output|error) to the return agent
-  else:  # no return destination
-      the LAST agent itself saves the final result (root → results board)
+  if next_index < len(level_route):
+      # advance within the level's sequence (no next_queue field; position rules)
+      deposit an ExecutionRequestMessage to class level_route[next_index]
+  else:
+      # end-of-level
+      if level == 1:
+          # FLOW END: end-of-sequence AND level 1 → final result
+          deposit the final result to end_of_level_queue (= final-result queue)
+          # nothing more is routed
+      else:
+          # branch close: return to the creator's gathering via end_of_level_queue
+          deposit an ExecutionResultMessage(output|error) to end_of_level_queue
 ```
 
-**Parallel fan-out.** A parallel instance pushes one child token per branch
-(upto one route item, `ultimate_return_agent_id = the parallel class`): a child
-is itself a task running over the child class's inbox. Fan-in returns land in
-the parallel's **gathering queue** and are merged into the **message-carried
-state** of the parent token (flat union, `output_as` for collisions — H3).
-Completion of the last branch advances the parent token.
+This is the **generalized end rule** (addendum AV): an agent is the flow's end
+when it is the last of its sequence AND `level == 1`, regardless of whether it
+is a sequence step, an atomic, or a parallel — not by any `client:`/board
+mechanism. `end_of_level_queue` is assigned by the flow creator (the **submit**
+sets it to the final-result queue; a **parallel** sets it to its own gathering
+queue for its branches); the agent never decides the destination (Schema 2 /
+addenda AJ/AL).
 
-**Where does "am I finished" live?** In the per-class **gathering bookkeeping**
-of the parallel (`state:parallel:<class>`, keyed by task, under a lock, as in
-the reference), not in a frame/board accumulator and not in any central engine.
-A sequence needs no such bookkeeping at all (§12.3).
+**Parallel fan-out.** On receiving its request, a parallel does **not** advance
+while its branches run. It fans out giving each branch its own `level_route`,
+`current_index = 0`, `end_of_level_queue` = the parallel's **gathering queue**,
+and `level + 1`. Fan-in results land in the gathering queue and are merged into
+the **token-carried state** (flat union, `output_as` for collisions — H3).
+On **fan-in completion** the parallel decrements `level` (−1) and resumes its
+own level (`current_index + 1` → next of its level), with `end_of_level_queue`
+the one its creator supplied. Parallel-as-root (submit as the parallel's creator)
+passes the parallel's sequence as level 1 with `end_of_level_queue` =
+final-result queue (addendum AM).
+
+**Where does "am I finished/fan-in complete" live?** In the per-class
+**gathering bookkeeping** of the parallel (`state:parallel:<class>`, keyed by
+task, under a lock, as in the reference), not in a frame/board accumulator and
+not in any central engine. A sequence needs no such bookkeeping at all (§12.3).
 
 **Failure and fan-in.** A child failure becomes an `ExecutionResultMessage`
 with an `error` payload through the existing failure path (§7/ARCH §8, rule 9):
@@ -1248,9 +1305,9 @@ The one place execution and lifecycle meet is **deposit**: pushing work into
 another class's queue. Rules (decoupled, local, no oracle):
 
 1. **Nothing enters a non-enabled class** — neither a business submit (§6.1
-   entry gate) nor an internal deposit by `_advance_flow`/fan-in. Enforcing at
-   *consumption* is wrong: a disabled class keeps draining its pending work
-   (policy A, §4.1/§4.6), so a message must never be allowed in.
+   entry gate) nor an internal deposit by the advancement rule / fan-in.
+   Enforcing at *consumption* is wrong: a disabled class keeps draining its
+   pending work (policy A, §4.1/§4.6), so a message must never be allowed in.
 2. **The gate is per-class data, not a central entity.** The class gate lives in
    one board (`db.dict("gates")`, keyed by class = `{state: enabled|disabled}`)
    and is written **only** by the Runtime (in the lifecycle ops) and **read** by
@@ -1271,11 +1328,10 @@ another class's queue. Rules (decoupled, local, no oracle):
    failed, or drained.
 5. **A blocked deposit is a visible failure** through the failure mechanism
    (§12.4): if the gate is closed at deposit time, the step fails with an
-   `error` result to `ultimate_return_agent_id` (or failed task), never a silent
-   no-op. **Exemptions**: a deposit whose target is a `client:{task_id}` root
-   return, and an error-result deposit, always proceed regardless of the gate —
-   a closed class keeps draining, and an error must always reach its return
-   path.
+   `error` result along its `end_of_level_queue` path (or failed task), never a
+   silent no-op. **Exemptions**: an error-result deposit always proceeds
+   regardless of the gate — a closed class keeps draining, and an error must
+   always reach its return path.
 
 ### 12.6 Polling-only, fields not mechanisms (restated for execution)
 

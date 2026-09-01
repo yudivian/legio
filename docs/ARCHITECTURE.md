@@ -24,11 +24,11 @@
 ## 1. Layers
 
 ```
-External API      Runtime (submit/status · synthetic parent · lifecycle ops · CLI/HTTP)
+External API      Runtime (submit/status · lifecycle ops · CLI/HTTP)
 Federation        catalog · resolver · work-item HTTP · outbox
 Lifecycle         AgentRegistry (mirror: catalog + YAML cache) · TaskManager (task engine + reaper)
 Agents            linguistic · tool · sequence · parallel  (+ base)
-Flow              FlowToken (route + position + return) · message-carried state
+Flow              FlowToken (level_route + current_index + end_of_level_queue + level) · message-carried state
 Patterns          YAML → PatternSpec → pydantic models (compile-time)
 Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 ```
@@ -41,13 +41,15 @@ Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 `db.queue` / `db.lock` directly.
 
-- **Board** — beaver persistent dict per scope: `db.dict("results")`
-  (`{task_id}`), `db.dict("tasks")`
+- **Board** — beaver persistent dict per scope: `db.dict("tasks")`
   (Runtime state). Future scopes: `gates` (Runtime-written class gate,
   read by depositors — AGENT_LIFECYCLE §12.5),
   `semaphore`, `outbox`, the AgentRegistry's `catalog` / `instances` /
   `yaml_cache`, and the TaskManager's `tm_tasks` / `tm_control` (see
-  `docs/AGENT_LIFECYCLE.md` §4.8/§6.1).
+  `docs/AGENT_LIFECYCLE.md` §4.8/§6.1). There is **no** ``results`` return
+  board: the final result is delivered to the **final-result queue**
+  (Schema 2) — the Runtime owns a per-task final-result queue that the submit
+  sets as the root `end_of_level_queue`.
 - **Queue** — beaver persistent priority queue per agent:
   `db.queue("legio:queue:<agent_id>")`; `get(block=False)` pops destructively and
   raises `IndexError` when empty; `put(item, priority=...)` deposits;
@@ -65,21 +67,40 @@ beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 
 ## 3. FlowToken — the contract that moves everything
 
-Fields: `route_pattern_names` (the concrete route of this task), `current_index`
-(position), `ultimate_return_agent_id` (where to return), `origin_node_id`
-(author node), `root` (root marker), `task_id` (public).
+> **Reconciled against AGENT_LIFECYCLE §4.11 Schema 2 (Session 14).** The old
+> `route_pattern_names` / `ultimate_return_agent_id` / `client:{task_id}` /
+> `results` board are superseded by `level_route` (per-level) +
+> `current_index` + `end_of_level_queue` + `level`.
 
-- **Who builds it**: any starting agent (atomic or composite — §6) is invoked
-  through a root step deposited into its queue; the starting agent then
-  concretizes the **root token** for the task. A **composite** starting agent
-  (sequence or parallel) inserts its sub-DAG into the token; an **atomic**
-  starting agent has no sub-DAG — its route reduces to itself and it advances
-  solely by position. If it is the root, it sets `root=True` and
-  `ultimate_return_agent_id = client:{task_id}`.
-- **"Is it final?" is derived from position**, not from a flag: last step means
-  delivery (internal: to the parent; root: to the client).
-- It is a CPS-style continuation: *what am I (my pattern), where am I, where am
-  I going, to whom do I return*.
+Fields (Schema 2): `schema_version`, `level_route` (the route of **this level**:
+a branch or sub-sequence — classes, not global patterns), `current_index`
+(0-based position of the class processing in `level_route`), `end_of_level_queue`
+(queue at the end of this level's sequence), `level` (branch-depth counter,
+starts 1), `launcher_class` (class that started the flow; constant,
+informational), `task_id` (public), `message_type` (execution_request |
+execution_result), `payload` (the carried data — single container for both
+roles).
+
+- **Who builds it**: the **submit** seeds the flow on a `main` agent in **level
+  1** with `end_of_level_queue` = the **final-result queue** (the board-free
+  equivalent of the old results board; there is no `client:{task_id}` queue and
+  no `results` board — the final result is delivered to the final-result queue,
+  Schema 2 / addendum AL). The flow creator assigns destinations; the agent
+  never decides where to deposit (addenda AJ/AL).
+- **"Is it the flow end?" is derived from position + `level`**, not from a flag:
+  end-of-sequence (`current_index == len(level_route)-1`) **and** `level == 1`
+  ⇒ final (deliver to `end_of_level_queue` = final-result queue). End-of-level
+  with `level > 1` ⇒ branch close (deliver to the creator's gathering queue via
+  `end_of_level_queue`). Generalized end rule (AGENT_LIFECYCLE §12.4, addendum AV).
+- **Parallel (branching)**: on receiving a request the parallel does not advance
+  while its branches run; it fans out giving each branch its `level_route`,
+  `current_index = 0`, `end_of_level_queue` = its **gathering queue**, and
+  `level + 1`. On fan-in completion it decrements `level` (−1) and resumes its
+  level (`current_index + 1`), with `end_of_level_queue` the one its creator
+  supplied. A parallel-as-branch at level 2 closes to its gathering; only a
+  last-of-sequence at `level == 1` delivers the final result.
+- It is a CPS-style continuation: *what am I (my class), where am I in my
+  level's route, where does my level end, at what branch depth*.
 
 ## 4. Agent types
 
@@ -112,16 +133,21 @@ composite:
 
 - **Definition**: an opaque, substitutable execution resource. It does not know
   about agents or queues; only `input_schema`/`output_schema` (pydantic).
-- **Declaration**: an atomic tool pattern declares `tool_type`,
-  `input_mapping`, `output_as`, `tool_config`. Several patterns may share a
-  tool; each is its own agent/queue, the resource is shared guarded by a
-  per-tool concurrency semaphore.
-- **Runtime (ToolAgent)**: resolves `tool_type` against the node's tool
-  registry (loaded at agent startup), validates inputs, executes (async or
-  blocking via `to_thread`), writes its output namespaced under `output_as`, and
-  completes with an `ExecutionResultMessage`. On failure there is no output;
-  retry/DLQ is decided by the orchestration (lease / `next_run_at` /
-  `attempts`), never by the tool.
+- **Declaration**: Schema 3 (`available_tools`) maps each tool name to
+  `implementation` + `policy {timeout, retries}`. An atomic `kind: tool` pattern
+  references the resource via `tool: <name>` and describes its call via the
+  terse `parameters` (dotted path / literal); it declares its own
+  `input_as`/`input_type`/`input_schema` and `output_as`/`output_type`/
+  `output_schema`. Several patterns may share a tool; each is its own agent/
+  queue, the resource is shared guarded by a per-tool concurrency semaphore.
+- **Runtime (ToolAgent)**: resolves `tool: <name>` against the node's
+  `available_tools` registry (the tool declares its input/output capacity via
+  `input_schema`/`output_schema`), validates inputs, executes (async or blocking
+  via `to_thread`), writes its output namespaced under `output_as`, and completes
+  with an `ExecutionResultMessage`. A tool does **not** declare output capacity in
+  the pattern — the consuming agents declare it via `output_as`/`output_schema`
+  (Schema 3). On failure there is no output; retry/DLQ is decided by the
+  orchestration (lease / `next_run_at` / `attempts`), never by the tool.
 - **lingo is bounded to linguistic agents.** Concrete agents never pass through
   it. lingo's tool-calling is reserved for a future agentic path where the LLM
   chooses a tool — not the deterministic case.
@@ -134,13 +160,14 @@ composite:
 - **Starting agent**: its parent is the client. It receives work from the API,
   which acts as a *synthetic parent* (only stages inputs and deposits the root
   step into the starting agent's queue — it never builds the DAG nor the root
-  token). The starting agent itself concretizes the root token (§3, §7.2). The
-  only contract differences: `root=True` and
-  `ultimate_return_agent_id = client:{task_id}` — on completion it deposits into
-  `results:{task_id}` instead of re-depositing to any agent.
+  token; the **submit** seeds the flow in level 1 with `end_of_level_queue` =
+  the **final-result queue**). The only contract difference: the flow is born on
+  a `main` agent and its final result is delivered to the final-result queue —
+  there is no `results:` board and no `client:{task_id}` queue (Schema 2).
 - **Capability**: only invoked by another agent through a queue deposit; returns
-  to the parent. A composite delegated to another node is likewise just a
-  routable agent with the same fan-in contract.
+  along its `end_of_level_queue` (the creator's gathering queue for a branch, or
+  the final-result queue at flow end). A composite delegated to another node is
+  likewise just a routable agent with the same fan-in contract.
 
 ## 7. Task lifecycle
 
@@ -148,21 +175,26 @@ composite:
    stages inputs, deposits `ExecutionRequestMessage` into the starting agent's
    queue (the class entry gate is checked here — `docs/AGENT_LIFECYCLE.md`
    §5.6/§6.1).
-2. The starting agent (root) takes the message, concretizes the root token and
+2. The **submit** seeds the flow: `ExecutionRequestMessage` on the `main` class
+   in **level 1**, `end_of_level_queue` = the **final-result queue**; the agent
    walks its flow.
-3. Composite: concretizes its sub-DAG; sequence chains; parallel fans out (each
-   child's route over its own class queue; results gather in the parallel's
-   gathering queue — AGENT_LIFECYCLE §12.4).
+3. Composite: sequence chains by position; parallel fans out (each branch gets
+   its `level_route` + `current_index=0` + `level+1`, its own class queue; results
+   gather in the parallel's gathering queue via `end_of_level_queue` —
+   AGENT_LIFECYCLE §12.4).
 4. Atomic: lingo if linguistic, tool registry if concrete.
-5. Each child returns an `ExecutionResultMessage`; the parallel fans in
-(dedupe per (parallel, task), bookkeeping `state:parallel:<class>`), merges
-  the message-carried state and continues.
-6. Final step → delivery: internal = deposit into `ultimate_return`; root =
-   `results:{task_id}`.
-7. The client polls `status(task_id)` → Runtime reads the `tasks`/`results`
-   boards. No in-memory handles: everything is a board. Lifecycle of the agents
-   themselves (not of a task) is governed by the Runtime / AgentRegistry /
-   TaskManager model — `docs/AGENT_LIFECYCLE.md` §0–§6.1.
+5. Each branch returns through its `end_of_level_queue` (the parallel's gathering
+   queue); the parallel fans in (dedupe per (parallel, task), bookkeeping
+   `state:parallel:<class>`), merges the token-carried state and resumes its
+   level.
+6. **Flow end** = end-of-sequence AND `level == 1` → deliver the final result to
+   `end_of_level_queue` = the **final-result queue** (no `results:` board, no
+   `client:` queue). End-of-level with `level > 1` → branch close to the
+   creator's gathering queue.
+7. The client polls `status(task_id)` → Runtime reads the final result from the
+   per-task final-result queue. Lifecycle of the agents themselves (not of a
+   task) is governed by the Runtime / AgentRegistry / TaskManager model —
+   `docs/AGENT_LIFECYCLE.md` §0–§6.1.
 
 ## 8. Failure and resilience
 
@@ -250,9 +282,13 @@ over the network.
 
 ## 11. Patterns (YAML)
 
-- `main` = starting agents (entry points); `atomic` + `composite` =
-  capabilities. `output_schema` → pydantic model at compile time; `output_as` =
-  result namespacing; `input_mapping` = which carried-state keys feed a step.
+- `main` = starting agents (entry points); `type: atomic/composite` × `kind:
+  tool/linguistic/sequence/parallel` = capabilities. Every agent declares the
+  mandatory entry/output contract triples (`input_as/input_type/input_schema`
+  and `output_as/output_type/output_schema`); `output_schema` → pydantic model
+  at compile time; `output_as` = result namespacing; a tool's call is the terse
+  `parameters` (dotted path / literal), and `tool: <name>` references a Schema 3
+  `available_tools` key (Schema 1).
 - Load is **fail-fast** with **cascade invalidation**: a pattern with an invalid
   dependency is deactivated along with everything that depends on it
   transitively. A dry-run validator ships with it.

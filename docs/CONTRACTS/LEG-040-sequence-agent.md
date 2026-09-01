@@ -24,18 +24,21 @@ next class's queue (AGENT_LIFECYCLE §12.3). No gathering queue.
 
 - Sequence = forward deposit of each step as an `ExecutionRequestMessage` to
   the next class's inbox; each step's start follows the previous one's result
-  (order encoded in the token's `route_pattern_names`/`current_index`).
-- Advance is the single `_advance_flow` (AGENT_LIFECYCLE §12.4): the last
-  step of the route returns to `ultimate_return_agent_id` (or saves the final
-  result if there is no return). Nothing loops back through the sequence.
+  (order encoded in the token's `level_route`/`current_index`).
+- Advance is the single Schema 2 rule (AGENT_LIFECYCLE §12.4): while
+  `current_index < len(level_route)-1`, deposit to `level_route[current_index+1]`
+  (by position); at end-of-level (`current_index == len-1`) deliver to
+  `end_of_level_queue` — the creator's gathering queue if `level > 1` (branch
+  close) or the submit's final-result queue if `level == 1` (flow end). Nothing
+  loops back through the sequence.
 - Merge: cumulative (H3) — each step's output is flat-merged into the carried
-  state of the outgoing message (`legio.flow.merge_carried`; `output_as` as the
+  state of the outgoing token (`legio.flow.merge_carried`; `output_as` as the
   `namespace` on collision), so a chain of any length keeps every earlier
   step's keys, in order. There is no out-of-message accumulator; the merged
-  dict is exactly what the next request carries as `payload["input"]` (or what
-  the root result writes to `results`).
-- Parent continuation: when the last step completes, the result returns to
-  the parent (LEG-051).
+  dict is exactly what the next request carries as `payload` (or what the flow
+  end delivers to the final-result queue).
+- Parent continuation: at branch close the result returns via `end_of_level_queue`
+  to the launching parallel's gathering queue (LEG-051).
 
 ## Interface
 

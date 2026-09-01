@@ -36,12 +36,17 @@ per (parallel, task) via the per-class bookkeeping
   join waits (in the bookkeeping, not by polling) until all present.
 - Inline steps: tool → auto-named sub-agent class queue; linguistic → self-run
   by the gatherer (H1).
-- Merge flat-union with `output_as` (H3) into the message-carried state, via
+- Merge flat-union with `output_as` (H3) into the token-carried state, via
   `legio.flow.merge_carried`; fail policy hooks LEG-063.
-- Nested composites need no token change: a composite is an ordinary class on
-  the route — it is invoked like any capability agent through its inbox and
-  returns via `ultimate_return_agent_id` (so a composite may appear as a branch
-  of a parallel or a step of a sequence; LEG-051).
+- Nested composites need no token change beyond the branch depth: a composite
+  is an ordinary class on the route — it is invoked like any capability agent
+  through its inbox and returns along its `end_of_level_queue` (the parallel's
+  gathering queue for a branch; the final-result queue at flow end) using the
+  Schema 2 flow-end rule (`current_index == len(level_route)-1` and `level`
+  bookkeeping; addendum AV). A composite may appear as a branch of a parallel or
+  a step of a sequence (LEG-051); branches are fanned out with `level + 1`, and
+  on fan-in completion the parallel decrements `level` (−1) and resumes its
+  level (`current_index + 1`).
 
 ## Interface
 
