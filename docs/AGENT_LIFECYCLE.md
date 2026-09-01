@@ -561,6 +561,118 @@ LEG-071 dry-run) — nothing silently miswired ever runs.
 
 ---
 
+## 4.11 The three schemas — current reviewed state (S1 pattern · S2 token · S3 tools)
+
+> **Status.** This section records the schemas **as they stand now** (Session 14,
+> reviewed in-session, journals 2026-08-31 addenda AB–AP). They are the agreed
+> vocabulary and are expected to be **revised after the S4 simulation** if it
+> exposes defects. `§4.10` above is the previously-landed S1 draft and still
+> contains `emit`/`bind`/`children`, which the maintainer confirmed are **not**
+> approved; §4.10 shall be reconciled against this section (and the addenda
+> K/M/N) before S1 is considered approved. English-only, per AGENTS.md.
+
+### Schema 1 — the agent pattern (S1)
+
+One spec for every agent, symmetric mandatory contracts. Approved vocabulary
+(addenda K/L/M/N; `emit`/`bind`/`children` are NOT approved):
+
+```yaml
+type: atomic | composite        # root discriminator, exactly these two
+kind: tool | linguistic | sequence | parallel
+name: <id>
+main: bool                      # root capability (identity), NOT position
+# entry contract — MANDATORY for every agent
+input_as: <alias>               # names the incoming payload space (anti-convention)
+input_type: text | json | binary
+input_schema:                   # mandatory (json: object with required/properties)
+# output contract — MANDATORY for every agent
+output_as: <alias>              # names the deposited payload space (destination)
+output_type: text | json | binary
+output_schema:                  # mandatory (json: object with required/properties)
+# interior — by kind
+tool: <available_tools-key>     # kind: tool; the CALL and the code's signature
+parameters:                     # kind: tool; arg -> dotted.path | literal (no from/value/default)
+prompt: "<template with {var}>" # kind: linguistic
+sequence: [ ... ]               # kind: sequence (refs pattern:<name> or inline with name)
+parallel: [ ... ]               # kind: parallel (children bind only from input_as of the composite)
+```
+
+- Contract of entry and output are **mandatory for every agent** — atomic and
+  composite, tool/linguistic/sequence/parallel — the full triples
+  (`as`/`type`/`schema`), strict symmetry, no exceptions (addendum T #1).
+- Cross `type × kind`, missing `kind`, both work-keys on one atomic,
+  `parallel`+`sequence` together, schema on a `text` type, tool without `tool`,
+  linguistic without `prompt`, prompt+tool — rejected at parse.
+- **Reuse:** a definition is unique; each use in a composite is a distinct node.
+  Same-class agents may appear more than once in a flow (by position), unless in
+  their own definition (cycle → infinite recursion, rejected at catalog load,
+  §4.10.5 / addendum AE).
+- **ToolAgent `parameters` is the CALL, terse:** `parameters: {arg: dotted.path
+  | literal}` — no `{from:}`, `{value:}`, `{default:}`; the default lives in the
+  code's signature and is never written. The tool names its resource via
+  `tool: <name>`; the name must exist in Schema 3's `available_tools`.
+
+### Schema 2 — the token/message that travels between class queues (S4-proposed)
+
+Settled token fields (addenda AG–AM). No `next_queue` — the next step is derived
+by position. No boards — the final destination is the final-result queue.
+
+| Field | Role |
+|---|---|
+| `schema_version` | int, `1000`; mismatch → reject. |
+| `level_route` | tuple of classes — the route of this level (a branch or sub-sequence). |
+| `current_index` | int, 0-based position of the class processing in `level_route` (advance `+1` = next). |
+| `end_of_level_queue` | queue at the end of this level's sequence — created by the **submit** (final-result queue) or by a **parallel** (its gathering queue). |
+| `level` | branch-depth counter: starts at 1; branching +1; leaving a branch −1. End-of-sequence AND `level == 1` ⇒ flow finished. |
+| `launcher_class` | class of the agent that started the flow; constant, informational, not control. |
+| `task_id` | str, the process's public id. |
+| `message_type` | enum `execution_request` \| `execution_result`. |
+| `payload` | the carried data (single container for both roles). |
+
+- **Advance (request):** `current_index < len(level_route)-1` → deliver `payload`
+  to class `level_route[current_index+1]` (by position, no next_queue field).
+- **End-of-level:** `current_index == len(level_route)-1` → deliver to
+  `end_of_level_queue`.
+- **Flow end:** end-of-sequence AND `level == 1` ⇒ final: deliver to
+  `end_of_level_queue` (= the final-result queue set by the submit). Nothing more
+  is routed.
+- **Parallel (branching):** a parallel class receives its request and does not
+  advance while its branches run; it fans out giving each branch its `level_route`
+  and `current_index = 0`, incrementing `level` (+1). Branches return to the
+  parallel's **gathering queue** via their `end_of_level_queue`. On fan-in
+  completion the parallel decrements `level` (−1) and resumes its own level
+  (`current_index + 1` → next of its level), with `end_of_level_queue` the one its
+  creator supplied.
+- **Parallel as root:** submit passes its sequence as level 1 with
+  `end_of_level_queue` = final-result queue; branches run at level 2 with
+  gathering; after fan-in the parallel advances its level-1 sequence with the
+  submit's final-result queue (addendum AM).
+- **`root`** lives in the FlowToken (subclassing the message), not in the queue
+  message; `end_of_level_queue` = final-result queue is the board-free equivalent
+  of the old "results board". The agent does not decide where to deposit — who
+  creates the flow assigns the class queue; the information lives always in the
+  token (addenda AJ/AL).
+
+### Schema 3 — the tools declaration (S2)
+
+Each tool is an independent, autosufficient resource; it does **not** know which
+agents use it (no coupling). The tool identifier is the explicit `available_tools`
+key, and that name is the bridge used later in the agent's `tool: <name>`.
+
+```yaml
+available_tools:
+  <name>:
+    implementation: <dotted.path.to.resource>
+    policy: { timeout: <seconds per call>, retries: <call retries> }
+```
+
+- A tool does **not** declare its output capacity — the consuming agents
+  declare the output via `output_as`/`output_schema` (S2 ruling).
+- Static (load) verification is the flow-against-itself; verification against the
+  tool (its signature/parameters) is execution-time (dynamically loaded).
+
+---
+
 ## 5. Flows (states explicit at every step)
 
 Conventions: class state = existence + activity; instance state = existence +
