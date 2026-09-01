@@ -142,16 +142,16 @@ def test_inline_linguistic_stage_is_self_executed() -> None:
     assert inline.queue_name is None
 
 
-def test_dotted_template_paths_resolve_against_scoped_board() -> None:
-    """H2: dotted paths resolve against the composite-scoped board."""
-    scoped_board = {
+def test_dotted_template_paths_resolve_against_payload() -> None:
+    """H2: dotted paths resolve against the payload."""
+    payload = {
         "input": {"payload": {"text": "hello"}, "lang": "en"},
         "stage_b": {"outline": ["intro", "body", "close"]},
     }
     system_vars = {"current_date": "2026-08-27"}
 
     rendered = resolve_template(
-        "{input.payload.text} in {input.lang} on {current_date}", scoped_board, system_vars
+        "{input.payload.text} in {input.lang} on {current_date}", payload, system_vars
     )
     assert rendered == "hello in en on 2026-08-27"
 

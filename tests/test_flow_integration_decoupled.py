@@ -13,8 +13,8 @@ Pins the corrected, decoupled model over the real modules:
 4. ``status`` (peeking that queue) reflects COMPLETED with the output.
 
 This validates the critical corrections so that LEG-025/026 are built on a
-faithful decoupled base, not an orchestrated one. No invented substrate layer,
-no ``results`` board.
+faithful decoupled base, not an orchestrated one. No invented substrate layer;
+there is no ``results`` board.
 """
 
 from __future__ import annotations

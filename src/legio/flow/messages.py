@@ -2,10 +2,9 @@
 
 Only two message types exist: ``ExecutionRequestMessage`` (client → root agent)
 and ``ExecutionResultMessage`` (agent → parent or final-result queue).
-``MessageType`` discriminates the two. Domain-free: ``payload`` is the single
-carried-data container (Schema 2) — the same container carries the accepted
-request facts and the accumulated output; there is no separate ``output`` field
-and no ``input`` nesting.
+``MessageType`` discriminates the two. Domain-free: ``payload`` is the single data container (Schema 2) — the same
+container carries the accepted request facts and the produced output; there is
+no separate ``output`` field and no ``input`` nesting.
 
 Token fields (Schema 2, AGENT_LIFECYCLE §4.11): ``level_route`` (the classes of
 this level), ``current_index`` (0-based position), ``end_of_level_queue`` (the
@@ -66,7 +65,7 @@ class ExecutionRequestMessage(ImmutableMessage):
 
 
 class ExecutionResultMessage(ImmutableMessage):
-    """The accumulated output of a completed level, deposited to the closer."""
+    """The produced output of a completed level, deposited to the closer."""
 
     message_type: MessageType = MessageType.EXECUTION_RESULT
     payload: dict[str, Any] = Field(default_factory=dict)

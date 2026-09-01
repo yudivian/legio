@@ -106,21 +106,9 @@ async def db() -> AsyncBeaverDB:
     return await connect_manager()
 
 
-async def tasks_board():
-    """Return the ``tasks`` dictionary (native beaver dict, ARCH §2)."""
+async def task_registry():
+    """Return the ``tasks`` dictionary (the TaskRegistry, native beaver dict)."""
     return (await db()).dict(_TASKS_SCOPE)
-
-
-async def results_board():
-    """DEPRECATED (Schema 2): no results board exists; results live in a queue.
-
-    Retained only so older callers fail loudly instead of silently writing to a
-    board that the flow no longer writes to. Prefer ``status`` / the token's
-    ``end_of_level_queue``.
-    """
-    raise NotImplementedError(
-        "results board removed (Schema 2): results live on the final-result queue"
-    )
 
 
 def agent_queue(agent_id: str) -> Any:
@@ -194,7 +182,7 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
         task_id=task_id,
         root=True,
     )
-    tasks = await tasks_board()
+    tasks = await task_registry()
     await tasks.set(
         task_id,
         {
@@ -233,7 +221,7 @@ async def status(task_id: str, client_id: str | None) -> TaskEntry:
     ``result_queue_key(task_id)``) via a non-destructive ``peek``; an empty queue
     means the task is still pending/running.
     """
-    tasks = await tasks_board()
+    tasks = await task_registry()
     data = await tasks.fetch(task_id)
     if data is None:
         logger.warning("manager status unknown task=%s", task_id)
@@ -279,5 +267,5 @@ __all__ = [
     "reset_manager",
     "status",
     "submit",
-    "tasks_board",
+    "task_registry",
 ]

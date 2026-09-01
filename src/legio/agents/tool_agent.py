@@ -2,14 +2,14 @@
 
 The ToolAgent executes a tool step of a route. It is an ``AgentBase``
 (LEG-023): the base provides the uniform lease/dispatch/hook/ack ``run()``
-loop, while ``_handle`` implements the tool-specific job — take the carried
-state from the request's single ``payload`` container (Schema 2), validate it
+loop, while ``_handle`` implements the tool-specific job — take the incoming
+payload from the request's single ``payload`` container (Schema 2), validate it
 against the tool's ``input_schema``, invoke the registered tool as a callable,
-validate the result against the tool's ``output_schema``, and return the merged
-carried state (AGENT_LIFECYCLE §12.1: the step's state rides in the messages —
-there is no out-of-message staging board). The base routes by position.
+validate the result against the tool's ``output_schema``, and build the new
+payload with ``build_payload`` (AGENT_LIFECYCLE §12.1: the state travels in the
+messages — nothing staged out-of-message). The base routes by position.
 
-Schema failures on either edge are never silent: an error-carrying result is
+Schema failures on either edge are never silent: an error result is
 deposited instead (see AGENTS.md rule 9).
 """
 
@@ -20,7 +20,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from legio.agents.base import AgentBase
-from legio.flow import ExecutionRequestMessage, merge_carried
+from legio.flow import ExecutionRequestMessage, build_payload
 from legio.tools import Tool, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ class ToolAgent(AgentBase):
             self._agent_id,
             request.task_id,
         )
-        return merge_carried(request.payload, output)
+        return build_payload(request.payload, output)
 
 
 __all__ = ["ToolAgent"]

@@ -1,4 +1,4 @@
-"""legio: board-and-queue agentic orchestration engine.
+"""legio: a decoupled, queue-based agentic orchestration engine.
 
 Independent library, domain-free. All domain knowledge lives in patterns (YAML)
 and a tool registry injected by the consumer.

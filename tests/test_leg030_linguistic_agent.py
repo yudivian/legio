@@ -1,14 +1,13 @@
 """Contract tests for LEG-030 — LinguisticAgent via lingo (over native beaver).
 
 The LinguisticAgent is an ``AgentBase`` (LEG-023) that pops a work item from its
-native beaver queue, resolves its prompt template against the message-carried
-payload, calls lingo (an ``LLM``/``MockLLM`` fake) to get a structured pydantic
-record validated against the pattern's declared ``output_model``, and returns
-the merged carried state, which the base routes by position (Schema 2). The
-step's state rides in the messages (AGENT_LIFECYCLE §12.1): there is no
-out-of-message staging board. Failures from lingo are never silent: an
-error-carrying result is deposited instead. All substrate is native beaver
-(LEG-048).
+native beaver queue, resolves its prompt template against the payload, calls
+lingo (an ``LLM``/``MockLLM`` fake) to get a structured pydantic record
+validated against the pattern's declared ``output_model``, and builds the new
+payload, which the base routes by position (Schema 2). The step's state travels
+in the messages (AGENT_LIFECYCLE §12.1): nothing is staged out-of-message.
+Failures from lingo are never silent: an error result is deposited instead.
+All substrate is native beaver (LEG-048).
 """
 
 from __future__ import annotations
@@ -71,7 +70,7 @@ def crafted_request(
 async def test_linguistic_agent_returns_structured_output_through_lingo(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """The prompt is templated from the message-carried payload."""
+    """The prompt is templated from the payload."""
     expected = SummarizeOutput(title="Hello", summary="A greeting", word_count=1)
     lingo_client = MockLLM(responses=[expected])
     task_id = "T-1"

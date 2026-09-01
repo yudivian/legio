@@ -6,8 +6,8 @@ submit-created final-result queue, addressed by ``result_queue_key``.
 
 The only persisted namespaces legio names directly are the per-agent queue
 ``legio:queue:<agent_id>`` and the per-task final-result queue
-``legio:queue:result:<task_id>`` (LEG-048). Boards are not used for flow
-results. Everything else is beaver's native naming.
+``legio:queue:result:<task_id>`` (LEG-048). Flow results always travel in the
+message payload. Everything else is beaver's native naming.
 """
 
 from __future__ import annotations

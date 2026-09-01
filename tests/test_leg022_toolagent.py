@@ -1,14 +1,14 @@
 """Tests for LEG-022 — ToolAgent execution path (over native beaver).
 
-The ToolAgent pops a work item from its native beaver queue, reads the carried
-state from the message's single ``payload`` container (Schema 2), validates it
+The ToolAgent pops a work item from its native beaver queue, reads the payload
+from the message's single ``payload`` container (Schema 2), validates it
 against the tool's ``input_schema``, calls the registered tool, validates the
-``output_schema``, and returns the merged carried state, which the base routes:
+``output_schema``, and builds the new payload, which the base routes:
 advance to the next class of the level, or deposit an ``ExecutionResultMessage``
-to the level's ``end_of_level_queue``. The step's state rides in the messages
-(AGENT_LIFECYCLE §12.1): there is no out-of-message staging board. Schema
-failures on either edge are never silent: the failure is visible in the outcome.
-All state lives on native beaver primitives (LEG-048).
+to the level's ``end_of_level_queue``. The step's state travels in the messages
+(AGENT_LIFECYCLE §12.1): nothing is staged out-of-message. Schema failures on
+either edge are never silent: the failure is visible in the outcome. All state
+lives on native beaver primitives (LEG-048).
 """
 
 from __future__ import annotations

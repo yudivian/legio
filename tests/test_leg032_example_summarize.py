@@ -139,7 +139,7 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
         entry = st.json()
         assert entry["state"] == "completed"
         # The assess tool consumed the linguistic step's structured output and
-        # the root result carries the full accumulated state (H3).
+        # the root result carries the full payload built across the steps (H3).
         assert entry["output"] == {
             "text": "the quick fox",
             "lang": "en",

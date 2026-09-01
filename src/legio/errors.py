@@ -52,7 +52,7 @@ class InvalidNameError(RecoverableError):
 
 
 class TemplateResolutionError(UnrecoverableError):
-    """A template dotted path does not resolve on the scoped board (LEG-031).
+    """A template dotted path does not resolve on the payload (LEG-031).
 
     A path that points nowhere is an authoring/pattern bug, not a transient
     failure: it must surface explicitly, never silently substitute an empty

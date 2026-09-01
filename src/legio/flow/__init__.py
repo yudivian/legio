@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from .merge import merge_carried
 from .messages import (
     SCHEMA_VERSION,
     ExecutionRequestMessage,
     ExecutionResultMessage,
     MessageType,
 )
+from .payload import build_payload
 from .token import FlowToken
 
 __all__ = [
@@ -17,5 +17,5 @@ __all__ = [
     "ExecutionResultMessage",
     "FlowToken",
     "MessageType",
-    "merge_carried",
+    "build_payload",
 ]

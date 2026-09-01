@@ -19,7 +19,7 @@ import pytest
 from beaver import AsyncBeaverDB
 
 from legio.agents.base import AgentBase
-from legio.flow import ExecutionRequestMessage, ExecutionResultMessage
+from legio.flow import ExecutionRequestMessage, ExecutionResultMessage, build_payload
 from legio.naming import queue_key
 
 
@@ -77,14 +77,13 @@ class FailingAgent(AgentBase):
         raise ValueError("boom")
 
 
-class MergeAgent(AgentBase):
-    """A chain link that accumulates its output into the carried state (H3)."""
+class BuildAgent(AgentBase):
+    """A chain link: takes the incoming payload and builds the new payload
+    including its own step output (H3 → ``build_payload``)."""
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict:
-        carried = dict(request.payload)
-        step = 1 + sum(1 for key in carried if key.startswith("s"))
-        carried[f"s{step}"] = step
-        return carried
+        step = 1 + sum(1 for key in request.payload if key.startswith("s"))
+        return build_payload(request.payload, {f"s{step}": step})
 
 
 @dataclass
@@ -247,11 +246,11 @@ async def test_root_task_deposits_result_to_end_of_level_queue(
 
 
 @pytest.mark.asyncio
-async def test_three_stage_chain_accumulates_carried_state(
+async def test_three_stage_chain_builds_payload_across_steps(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """B1/C1: a chain of three carries the accumulated state message-to-message."""
-    agents = [build(MergeAgent, agent_id=a, db=beaver_db) for a in ("main", "mid", "last")]
+    """B1/C1: a chain of three builds the payload message-to-message."""
+    agents = [build(BuildAgent, agent_id=a, db=beaver_db) for a in ("main", "mid", "last")]
     route = ("main", "mid", "last")
     await beaver_db.queue(queue_key("main")).put(
         make_request(

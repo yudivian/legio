@@ -11,14 +11,14 @@ an ``ExecutionResultMessage`` to the level's ``end_of_level_queue`` (the
 submit's final-result queue at level 1, AGENT_LIFECYCLE §4.11). The route and
 the destination travel inside the message itself: routing is always derived
 from ``level_route``/``current_index``/``end_of_level_queue``, never from
-caller-owned knowledge, and the step's accumulated state rides in the single
-``payload`` container (Schema 2). There is **no** ``results`` board.
+caller-owned knowledge, and the step's produced payload travels in the single
+``payload`` container (Schema 2).
 
 The actual steps (linguistic, tool, composite) plug in via ``_handle``, which
-returns the carried state to route; ``ToolAgent`` (LEG-022) is one such
+returns the new payload to route; ``ToolAgent`` (LEG-022) is one such
 subclass. Failures are never silent (AGENTS.md rule 9): a raised step error is
-surfaced as an ``error``-carrying result, and ``retry_guard`` decides whether
-to re-run the step instead.
+surfaced as an ``error`` result, and ``retry_guard`` decides whether to re-run
+the step instead.
 
 No invented substrate layer exists (LEG-048): the agent speaks beaver natively,
 exactly as castor's Manager holds a ``db`` and calls ``db.dict``/``db.queue``/
@@ -166,7 +166,7 @@ class AgentBase:
     async def _run_guarded(self, request: ExecutionRequestMessage) -> None:
         """Run the step job and route its outcome, or route a raised failure."""
         try:
-            carried = await self._handle(request)
+            new_payload = await self._handle(request)
         except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
             error = f"{type(exc).__name__}: {exc}"
             logger.warning(
@@ -189,8 +189,8 @@ class AgentBase:
                 return
             await self._route_outcome(request, {"error": error})
             return
-        if carried is not None:
-            await self._route_outcome(request, carried)
+        if new_payload is not None:
+            await self._route_outcome(request, new_payload)
             await self._emit(_EVENT_STEP_DONE, request)
 
     async def _should_retry(
@@ -223,7 +223,7 @@ class AgentBase:
     async def _route_outcome(
         self, request: ExecutionRequestMessage, payload: dict[str, Any]
     ) -> None:
-        """Route the carried state to the next class or the level closer.
+        """Route the produced payload to the next class or the level closer.
 
         Routing is Schema 2 position-based: while ``current_index + 1`` is inside
         ``level_route`` the outcome advances to ``level_route[current_index + 1]``
@@ -288,7 +288,7 @@ class AgentBase:
     async def _handle(
         self, request: ExecutionRequestMessage
     ) -> dict[str, Any] | None:  # pragma: no cover - abstract
-        """Execute the step's job; return the carried state (or None to drop).
+        """Execute the step's job; return the new payload (or None to drop).
 
         Implemented by concrete agents. A returned dict is routed by position by
         ``_route_outcome``; a raised exception is surfaced as an error result by

@@ -4,7 +4,7 @@ Formalizes the structured-output contract for R-3 atomics:
 
 - Every atomic output is one validated pydantic record (this is satisfied where
   it is produced: ToolAgent validates ``output_schema``, LinguisticAgent
-  validates ``output_model``); the record is dot-opened into the scoped board
+  validates ``output_model``); the record is dot-opened into the new payload
   for later steps.
 - ``resolve_template`` resolves dotted paths against that dot-opened record and
   system variables (e.g. ``{current_date}``) are always available.
