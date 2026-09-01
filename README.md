@@ -24,7 +24,7 @@ R-3 (Atomics) **shipped**, on the Schema 2 engine. Done:
   (`docs/AGENT_LIFECYCLE.md` §4.11): **S1** one agent spec (type × kind,
   mandatory symmetric contracts, terse `parameters`), **S2** the class token
   that travels between class queues (`level_route`/`current_index`/
-  `end_of_level_queue`/`level`, no boards), **S3** the `available_tools`
+  `end_of_level_queue`/`level`), **S3** the `available_tools`
   declaration (`implementation` + `policy`).
 - R-2 (Walking skeleton): native beaver substrate (queues/dicts/locks spoken
   directly, no invented wrapper layer — LEG-048), flow messages + token
@@ -32,7 +32,7 @@ R-3 (Atomics) **shipped**, on the Schema 2 engine. Done:
   (LEG-014/024), federation + naming + errors + security (LEG-015/016/017),
   REST worker surface (LEG-025), E2E `transform` example (LEG-026), auth
   middleware (LEG-027) — **shipped** on a decoupled, polling base (Schema 2;
-  no `results` board, no `client:` pseudo-agent).
+  no `results` store, no `client:` pseudo-agent).
 - R-3 (Atomics): LinguisticAgent (LEG-030) with lingo's `MockLLM` producing a
   validated `output_model` record, structured-output/template contract with an
   explicit undefined-path error (LEG-031), and the `summarize` linguistic→tool

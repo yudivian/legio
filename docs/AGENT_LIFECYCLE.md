@@ -1181,18 +1181,19 @@ No disablement-history is recorded; the live catalog is what guides decisions.
 ## 12. Execution mechanics and the lifecycle × execution handshake
 
 > **Reconciled against §4.11 Schema 2 (Session 14).** The old wording
-> (`route_pattern_names`, `ultimate_return_agent_id`, "results board",
+> (`route_pattern_names`, `ultimate_return_agent_id`, "results store",
 > `client:{task_id}` root return) is superseded. The token now carries
 > `level_route` (per-level), `current_index`, `end_of_level_queue`, `level`,
 > `launcher_class`; the destination is by position + `level`, and the final
-> result goes to the **final-result queue** (no board, no `client:` return).
+> result goes to the **final-result queue** (no store, no `client:` return).
 
 This section specifies the **runtime flow of a task** and how it meets the
 class lifecycle (create / enable / disable / destroy). It is the execution
 counterpart of §0-§8, and it is written so the decoupling rules cannot be
 re-learned wrong: the flow is **forward-only (a DAG, per level)**, state travels
 **in the message** (Schema 2 token), and the only per-class data are a queue and
-(where relevant) a gathering queue and a gate — never an accumulator "board".
+(where relevant) a gathering queue and a gate — never an out-of-message
+accumulator.
 
 ### 12.1 The message payload is the state: it travels in the messages/token
 
@@ -1273,7 +1274,7 @@ advance(request) for the current step (level_route[current_index]):
 
 This is the **generalized end rule** (addendum AV): an agent is the flow's end
 when it is the last of its sequence AND `level == 1`, regardless of whether it
-is a sequence step, an atomic, or a parallel — not by any `client:`/board
+is a sequence step, an atomic, or a parallel — not by any `client:` store
 mechanism. `end_of_level_queue` is assigned by the flow creator (the **submit**
 sets it to the final-result queue; a **parallel** sets it to its own gathering
 queue for its branches); the agent never decides the destination (Schema 2 /
@@ -1293,8 +1294,9 @@ final-result queue (addendum AM).
 
 **Where does "am I finished/fan-in complete" live?** In the per-class
 **gathering bookkeeping** of the parallel (`state:parallel:<class>`, keyed by
-task, under a lock, as in the reference), not in a frame/board accumulator and
-not in any central engine. A sequence needs no such bookkeeping at all (§12.3).
+task, under a lock, as in the reference), not in an out-of-message accumulator
+and not in any central engine. A sequence needs no such bookkeeping at all
+(§12.3).
 
 **Failure and fan-in.** A child failure becomes an `ExecutionResultMessage`
 with an `error` payload through the existing failure path (§7/ARCH §8, rule 9):

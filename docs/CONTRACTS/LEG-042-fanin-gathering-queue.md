@@ -25,7 +25,8 @@ forward-only and has no fan-in (§12.3).
 - The payload travels **in the messages** (AGENT_LIFECYCLE §12.1);
   the gathering queue of the parallel class holds the children's
   `ExecutionResultMessage` returns from which the parallel **builds its
-  payload** — there is **no** out-of-message accumulator and no out-gate board.
+  payload** — there is **no** out-of-message accumulator and no central
+  gate store.
 - Per H3: join is executed when the parallel's bookkeeping (locked,
   `state:parallel:<class>`, keyed per task) confirms the hole resolved &
   departure gate settled; tokens of a step wait at the canonical hole until

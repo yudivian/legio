@@ -23,7 +23,7 @@ the task's final-result queue (`result_queue_key`) and client-owned reading via
   into the starting agent's queue and returns `task_id` (LEG-016); the root
   result is written by the terminating agent (at end-of-sequence **and**
   `level == 1`) to that final-result queue (there is no `results:{task_id}`
-  board and no per-task `client:{task_id}` queue). `status` reads it back via a
+  store and no per-task `client:{task_id}` queue). `status` reads it back via a
   non-destructive `peek`.
 
 ## Interface

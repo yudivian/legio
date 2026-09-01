@@ -2,7 +2,7 @@
 
 - **Status:** DRAFT (awaiting maintainer approval; reworded 2026-08-31 to the
   Schema 2 delivery model — the old `ultimate_return_agent_id` / `results`
-  board mechanism is removed)
+  store mechanism is removed)
 - **Rasante:** R-5
 - **GitHub issue:** #30
 - **Source:** `docs/PLAN.md` (LEG-053); `docs/AGENT_LIFECYCLE.md` §4.11 Schema 2
@@ -12,7 +12,7 @@
 Define and enforce the delivery of the final result token: at **flow end**
 (end-of-sequence AND `level == 1`), the result is delivered to
 `end_of_level_queue` — the **final-result queue** assigned by the submit. There
-is no `results` board and no `client:{task_id}` queue.
+is no `results` store and no `client:{task_id}` queue.
 
 ## Scope
 - **In scope:** internal delivery (branch close to a creator's gathering queue)

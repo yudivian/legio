@@ -26,8 +26,8 @@ per (parallel, task) via the per-class bookkeeping
   **gathering queue** for fan-in returns (§12.3); collapsing them into one
   physical queue by message-type dispatch is an implementation choice.
   The payload travels in the messages (§12.1); the gathering bookkeeping
-  (`state:parallel:<class>`, locked, keyed per task) is the join state — not a
-  frame/board accumulator.
+  (`state:parallel:<class>`, locked, keyed per task) is the join state — not an
+  out-of-message accumulator.
 - Fan-in identity: dedupe per **(parallel, child task id)**; each branch is one
   child task (LEG-052) — "two B-step tasks at different positions are distinct
   tasks". The fan-out **mints a distinct child task id (uuid) per branch**; the

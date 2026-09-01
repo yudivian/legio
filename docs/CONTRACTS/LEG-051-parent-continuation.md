@@ -21,7 +21,7 @@ composites.
 - A composite completion at **end-of-level with `level > 1`** always deposits its
   `ExecutionResultMessage` to `end_of_level_queue` — the queue the launching
   parallel assigned (its **gathering queue**), which is the "parent" of that
-  branch. There is no `client:{task_id}`-style identity and no board.
+  branch. There is no `client:{task_id}`-style identity and no store.
 - Nested composite-inside-composite: an inner composite's branch-close surfaces
   first to its enclosing composite's gathering queue (via its own
   `end_of_level_queue`, `level` decrementing per completed fan-in); a composite

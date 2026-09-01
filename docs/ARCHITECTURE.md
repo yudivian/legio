@@ -69,7 +69,7 @@ beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 
 > **Reconciled against AGENT_LIFECYCLE §4.11 Schema 2 (Session 14).** The old
 > `route_pattern_names` / `ultimate_return_agent_id` / `client:{task_id}` /
-> `results` board are superseded by `level_route` (per-level) +
+> `results` store are superseded by `level_route` (per-level) +
 > `current_index` + `end_of_level_queue` + `level`.
 
 Fields (Schema 2): `schema_version`, `level_route` (the route of **this level**:

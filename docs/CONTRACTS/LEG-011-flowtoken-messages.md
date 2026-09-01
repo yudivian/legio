@@ -14,10 +14,10 @@ including `schema_version`, the per-level token fields and the flow-end rule.
 
 ## Scope
 - **In scope:** the Schema 2 token fields, versioning, the advancement /
-  end-of-level / flow-end rule, `end_of_level_queue` semantics (no boards, no
+  end-of-level / flow-end rule, `end_of_level_queue` semantics (no store, no
   `next_queue`).
 - **Out of scope:** authoring logic (the submit); serialization of payloads
-  themselves; the `results` board / `client:{task_id}` return (removed).
+  themselves; the `results` store / `client:{task_id}` return (removed).
 
 ## Contract & design
 - FlowToken fields (Schema 2):
@@ -54,11 +54,12 @@ including `schema_version`, the per-level token fields and the flow-end rule.
   gathering; after fan-in the parallel advances its level-1 sequence with the
   submit's final-result queue (addendum AM).
 - **`root`** lives in the FlowToken (subclassing the message), not in the queue
-  message; `end_of_level_queue` = final-result queue is the board-free equivalent
-  of the old "results board". The agent does not decide where to deposit — who
-  creates the flow assigns the class queue; the information lives always in the
-  token (addenda AJ/AL). There is no `route_pattern_names` (global route),
-  no `ultimate_return_agent_id`, and no `client:{task_id}`/`results:{}` board.
+  message; `end_of_level_queue` = final-result queue is the store-free
+  equivalent of the old "results store". The agent does not decide where to
+  deposit — who creates the flow assigns the class queue; the information lives
+  always in the token (addenda AJ/AL). There is no `route_pattern_names`
+  (global route), no `ultimate_return_agent_id`, and no `client:{task_id}`/
+  `results:{}` store.
 - Messages: `ExecutionRequestMessage` (start/deposit a step),
   `ExecutionResultMessage` (return); `message_type` discriminates in the dual
   queue.
@@ -73,7 +74,7 @@ including `schema_version`, the per-level token fields and the flow-end rule.
 - Flow-end derived from position + `level` (end-of-sequence AND `level == 1`),
   per the generalized rule; end-of-level with `level > 1` closes to the
   creator's gathering queue.
-- No `next_queue`, no boards, no `ultimate_return_agent_id`: the destination is
+- No `next_queue`, no store, no `ultimate_return_agent_id`: the destination is
   always `end_of_level_queue`, assigned by the flow creator.
 
 ## Tests

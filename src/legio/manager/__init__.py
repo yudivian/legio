@@ -9,7 +9,7 @@ Task submission (Schema 2) seeds the starting pattern's level-1 route with an
 ``end_of_level_queue`` = the task's final-result queue
 (``result_queue_key(task_id)``); whichever class closes the level deposits the
 ``ExecutionResultMessage`` there, and ``status`` reads it back from that queue
-(peek, non-destructive). There is **no** ``results`` board and no
+(peek, non-destructive). There is **no** ``results`` store and no
 ``client:{task_id}`` family (ARCH §7, addendum AL). Task ids obey the naming
 contract ``<origin>:<uuid>`` (LEG-016).
 """

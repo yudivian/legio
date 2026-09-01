@@ -8,12 +8,12 @@
 
 > **Revised 2026-09-01 (Schema 2, addenda AJ/AL/AM + Fase 1):** the
 > `client:{task_id}` pseudo-agent, its termination flow, the stuck-client reaper
-> and the `results:{task_id}` board were all **removed**. The submit creates the
+> and the `results:{task_id}` store were all **removed**. The submit creates the
 > task's **final-result queue** (`result_queue_key(task_id)`) and seeds it as
 > the root token's `end_of_level_queue`; the class that closes the flow at
 > `level == 1` deposits the final result there. The client reads it back via
 > `status` (a non-destructive `peek`). (The R-6 lease reaper, LEG-060, and the
-> TaskManager reaper, R-8, are unrelated and remain.) There is **no** board and
+> TaskManager reaper, R-8, are unrelated and remain.) There is **no** store and
 > **no** `client:{task_id}` queue — the destination lives in the token.
 
 ## Goal
@@ -33,7 +33,7 @@ delivered to the client.
 - Root delivery: when the root task finishes (end-of-sequence **and**
   `level == 1`, addendum AV) the closing agent writes the result to its
   `end_of_level_queue`, i.e. the final-result queue `result:<task_id>` — there
-  is **no** `results:{task_id}` board and **no** `client:{task_id}` queue. The
+  is **no** `results:{task_id}` store and **no** `client:{task_id}` queue. The
   client reads it back via `status`.
 - Ownership: `status`/results only readable by the owning client (LEG-017).
 

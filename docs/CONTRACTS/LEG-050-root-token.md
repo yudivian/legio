@@ -1,7 +1,7 @@
 # LEG-050 — Submit seeding & final-result delivery (reconciled to Schema 2)
 
 - **Status:** DRAFT (awaiting maintainer approval; reworded 2026-08-31 to the
-  Schema 2 submit model — no `results:{task_id}` board, no `client:{task_id}`)
+  Schema 2 submit model — no `results:{task_id}` store, no `client:{task_id}`)
 - **Rasante:** R-5
 - **GitHub issue:** #27
 - **Source:** `docs/PLAN.md` (LEG-050); `docs/AGENT_LIFECYCLE.md` §4.11 Schema 2
@@ -11,7 +11,7 @@
 The **submit** seeds the flow: it places the first `ExecutionRequestMessage` on
 a `main` class in **level 1** with `end_of_level_queue` = the **final-result
 queue**, and the final result is delivered there exactly-once. There is no
-`results:{task_id}` board and no `client:{task_id}` queue.
+`results:{task_id}` store and no `client:{task_id}` queue.
 
 ## Scope
 - **In scope:** submit authoring semantics (level 1 + final-result queue),
