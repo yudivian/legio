@@ -42,7 +42,7 @@ destroy**, only — no other verbs such as "down"/"up"/"load"/"unload".
   Implemented in `legio` itself (see `docs/DEPENDENCIES.md`, "Excluded on
   purpose"); its functional reference is `castor-io`. The `TaskManager` scales
   the Runtime and the Registry.
-- **`beaver`** — the single substrate (boards, priority queues, locks). All of
+- **`beaver`** — the single substrate (registries, priority queues, locks). All of
   the above sit on it.
 - **`lingo`** — LLM + structured output (the role the reference's `argo` played
   for LLM interaction).
@@ -412,7 +412,7 @@ into a flow. The pattern **declares**; the code resource defines the tool's
 signature; Schema 3 (`available_tools`) maps name → implementation + policy.
 The shape language inside the schemas supports
 string/number/integer/boolean/array/object, `required`, `properties` and
-`default`. The reference model's flat merge + `output_as` namespacing is
+`default`. The reference model's flat read + `output_as` namespacing is
 inherited as *read semantics*, but S1 replaces its implicit names with declared
 aliases (§4.10.2) and its `inputs` projection with the terse `parameters` call
 (§4.10.4). No consumer domain, code name or resource contract appears in a
@@ -642,7 +642,7 @@ parallel: [ ... ]               # kind: parallel (children bind only from input_
 ### Schema 2 — the token/message that travels between class queues (S4-proposed)
 
 Settled token fields (addenda AG–AM). No `next_queue` — the next step is derived
-by position. No boards — the final destination is the final-result queue.
+by position. No results store — the final destination is the final-result queue.
 
 | Field | Role |
 |---|---|
@@ -654,7 +654,7 @@ by position. No boards — the final destination is the final-result queue.
 | `launcher_class` | class of the agent that started the flow; constant, informational, not control. |
 | `task_id` | str, the process's public id. |
 | `message_type` | enum `execution_request` \| `execution_result`. |
-| `payload` | the carried data (single container for both roles). |
+| `payload` | the data (single container for both roles). |
 
 - **Advance (request):** `current_index < len(level_route)-1` → deliver `payload`
   to class `level_route[current_index+1]` (by position, no next_queue field).
@@ -675,10 +675,10 @@ by position. No boards — the final destination is the final-result queue.
   gathering; after fan-in the parallel advances its level-1 sequence with the
   submit's final-result queue (addendum AM).
 - **`root`** lives in the FlowToken (subclassing the message), not in the queue
-  message; `end_of_level_queue` = final-result queue is the board-free equivalent
-  of the old "results board". The agent does not decide where to deposit — who
-  creates the flow assigns the class queue; the information lives always in the
-  token (addenda AJ/AL).
+  message; `end_of_level_queue` = final-result queue is the store-free return
+  (there is no "results store"). The agent does not decide where to deposit —
+  who creates the flow assigns the class queue; the information lives always in
+  the token (addenda AJ/AL).
 
 ### Schema 3 — the tools declaration (S2)
 
@@ -898,7 +898,8 @@ its own identity; the TM task that executes its loop keeps a separate `task_id`
 (§4.8).
 
 **Invariant — no orphaned jobs (confirmed 2026-08-30).** A business task is
-always traceable in the Runtime boards (`tasks` / `results`): it either reaches a
+always traceable in the Runtime registries (`tasks` / and the TM's `tm_tasks`):
+it either reaches a
 terminal state or stays visibly pending. The only deliberate-loss path is
 `destroy_class --mode now`, which is explicit and operator-chosen (§4.6). There
 must never be a job that exists nowhere and is seen by no one. **If an orphan
@@ -916,7 +917,7 @@ patterns, the DAG, routing or the `AgentRegistry`. Its functional reference is
 Runtime, `legio.manager`).
 
 **What a task is (domain-free).** A task is identified by `task_id` (uuid). Its
-record lives on the board `db.dict("tm_tasks")` and holds: `name`, `args`,
+record lives on the registry `db.dict("tm_tasks")` and holds: `name`, `args`,
 `kwargs`, `status`, `cancellable`, `next_run_at`, timestamps (`enqueued_at`,
 `started_at`, `finished_at`), `result`, `error`, and the resilience fields
 reserved for R-6 (`attempts`, `lease_expires_at`). Status is one of `pending |
@@ -947,9 +948,9 @@ async pause(task_id) / resume(task_id)      # disable ≠ destroy: non-terminal 
 async cancel(task_id)                       # terminal, cooperative
 ```
 
-- The **callable registry is in-process code**, never a board: it is the task
+- The **callable registry is in-process code**, never a registry: it is the task
   executor's execution scope (castor's `_registry`); state — the authority of what
-  happened — is always a board.
+  happened — is always a (persistent) registry.
 - The Runtime **registers the callables that are the agents' internal loops**
   (each agent's `AgentBase.run`, LEG-023). To the TM each is just a callable —
   it never sees what is inside, and the callable is **not** the agent: it is the
@@ -1007,7 +1008,7 @@ decides them and records them in the `AgentRegistry` **after** each is confirmed
 **Compliance (audit).** Polling-only / no sleeps (rule 8), scheduling as a field
 (`next_run_at`); domain-free (rule 7 — names/states only, never agents); errors
 never silent (rule 9 — `failed`+`error` visible, `failed(executor_died)`,
-`cancelled`); everything is a board (rule 13 — callables are code, never
+`cancelled`); everything is a registry (rule 13 — callables are code, never
 authority); logging with the implementation (rule 11); no instance supervisor
 (the TM is executor only; the Runtime decides; the agent's internal cycle is the
 callable's own — the agent is not a task, its identity lives in the catalog);
@@ -1193,18 +1194,19 @@ re-learned wrong: the flow is **forward-only (a DAG, per level)**, state travels
 **in the message** (Schema 2 token), and the only per-class data are a queue and
 (where relevant) a gathering queue and a gate — never an accumulator "board".
 
-### 12.1 Message-carried state: state lives in the messages/token, never in a board
+### 12.1 The message payload is the state: it travels in the messages/token
 
-The accumulated state of a task travels **inside the token** (Schema 2) exactly
-as in the reference model (`voice-notes-api`): the message carries `payload`
-(the carried data — the single container for both request and result roles) and
-the flow fields (`level_route`, `current_index`, `end_of_level_queue`, `level`,
+Each agent receives the incoming `payload`, performs its processing, and
+**builds the new `payload`** that travels in the outgoing message (Schema 2)
+exactly as in the reference model (`voice-notes-api`): the message carries
+`payload` (the single container for both request and result roles) and the
+flow fields (`level_route`, `current_index`, `end_of_level_queue`, `level`,
 `launcher_class`, `task_id`, `message_type`, `schema_version`). There is **no**
-board that accumulates per-agent/task state out of the token (see
+store that holds per-agent/task state out of the token (see
 `docs/JOURNALS/2026-08-30.md`, execution-mechanics thread); the message payload
-is the state — polling-only, nothing central, nothing staged out-of-message for
-later merge. `root` lives in the FlowToken (subclassing the message), not in the
-queue message (Schema 2 / addendum AJ).
+is the state — polling-only, nothing central, nothing staged out-of-message
+for later combination. `root` lives in the FlowToken (subclassing the message),
+not in the queue message (Schema 2 / addendum AJ).
 
 ### 12.2 One inbox queue per class; every agent of the class polls it
 
@@ -1280,8 +1282,9 @@ addenda AJ/AL).
 **Parallel fan-out.** On receiving its request, a parallel does **not** advance
 while its branches run. It fans out giving each branch its own `level_route`,
 `current_index = 0`, `end_of_level_queue` = the parallel's **gathering queue**,
-and `level + 1`. Fan-in results land in the gathering queue and are merged into
-the **token-carried state** (flat union, `output_as` for collisions — H3).
+and `level + 1`. Fan-in results land in the gathering queue and the parallel
+**builds its payload** from the branch results (projecting each under its
+`output_as`; collisions resolved via `output_as` namespacing — H3).
 On **fan-in completion** the parallel decrements `level` (−1) and resumes its
 own level (`current_index + 1` → next of its level), with `end_of_level_queue`
 the one its creator supplied. Parallel-as-root (submit as the parallel's creator)
@@ -1295,7 +1298,7 @@ not in any central engine. A sequence needs no such bookkeeping at all (§12.3).
 
 **Failure and fan-in.** A child failure becomes an `ExecutionResultMessage`
 with an `error` payload through the existing failure path (§7/ARCH §8, rule 9):
-the parallel merges it (tolerant policy, R-6 refines) and the parent flow
+the parallel accounts for it (tolerant policy, R-6 refines) and the parent flow
 continues or fails visibly. Exhausted attempts go to the DLQ (R-6). Errors are
 never silent.
 
@@ -1309,7 +1312,7 @@ another class's queue. Rules (decoupled, local, no oracle):
    Enforcing at *consumption* is wrong: a disabled class keeps draining its
    pending work (policy A, §4.1/§4.6), so a message must never be allowed in.
 2. **The gate is per-class data, not a central entity.** The class gate lives in
-   one board (`db.dict("gates")`, keyed by class = `{state: enabled|disabled}`)
+   one registry (`db.dict("gates")`, keyed by class = `{state: enabled|disabled}`)
    and is written **only** by the Runtime (in the lifecycle ops) and **read** by
    any depositor (a submit or an internal task). This is the same mirror
    principle as the catalog — local, named, no central authority deciding
