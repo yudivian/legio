@@ -12,13 +12,23 @@ implementing agents.
 2. **Semantic-informative naming.** Every name carries its meaning:
    - Functions/verbs, classes/nouns, booleans read as predicates.
    - Prefer explicit over clever/abbreviated. No `x`, `tmp`, `foo`.
-3. **Journal after every turn.** No turn ends — and nothing is committed or
-   pushed — until the journal under `docs/JOURNALS/` records that turn, even
-   in the middle of a session (a session may span several turns; each one appends
-   chronologically to the same day file). The entry must report: what was done
-   (per issue), decisions taken, tests run/passed, known issues, and next steps.
-   Never leave unjournaled work sitting in the working tree. Before starting any
-   work, read the latest journal entry — it is how development resumes.
+3. **Journal and commit it every turn.** Two things persist *separately*:
+   - **The journal (fixed, mandatory, every turn).** No turn ends — even
+     mid-session (a session may span several turns; each appends chronologically
+     to the same day file) — until the journal under `docs/JOURNALS/` records
+     that turn **and that journal is committed within the turn itself**, whether
+     or not any code changed. The entry serializes *what was discussed and
+     decided*: what was done (per issue), decisions taken, open questions, tests
+     run/passed, known issues, and next steps. It reflects the real tree as of
+     the end of the turn and must not "look ahead" to describe uncommitted future
+     work as done.
+   - **The work tree (not fixed per turn).** The code/docs a turn touched is *not*
+     obliged to be committed in that same turn: it may be a decision in progress
+     that the next turn will reshape. The work is committed on its own, when it
+     becomes final/stable. The only commit that is fixed each turn is the
+     journal's.
+   Before starting any work, read the latest journal entry — it is how
+   development resumes.
 4. **Build and test what you do.** No code change ships without tests that run
    and pass in CI (`ruff`, tests, typecheck). "Done" always includes green tests.
 5. **Plan → specs → implementation; work is per issue.** Work follows the
