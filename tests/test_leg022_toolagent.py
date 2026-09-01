@@ -1,13 +1,14 @@
 """Tests for LEG-022 — ToolAgent execution path (over native beaver).
 
-The ToolAgent pops a work item from its native beaver queue, reads the
-``input`` from the message-carried payload, validates it against the tool's
-``input_schema``, calls the registered tool, validates the
-``output_schema``, and deposits an ``ExecutionResultMessage`` back to the
-parent (or the client for the last step). The step's state rides in the
-messages (AGENT_LIFECYCLE §12.1): there is no out-of-message staging board.
-Schema failures on either edge are never silent: the failure is visible in the
-outcome. All state lives on native beaver primitives (LEG-048).
+The ToolAgent pops a work item from its native beaver queue, reads the carried
+state from the message's single ``payload`` container (Schema 2), validates it
+against the tool's ``input_schema``, calls the registered tool, validates the
+``output_schema``, and returns the merged carried state, which the base routes:
+advance to the next class of the level, or deposit an ``ExecutionResultMessage``
+to the level's ``end_of_level_queue``. The step's state rides in the messages
+(AGENT_LIFECYCLE §12.1): there is no out-of-message staging board. Schema
+failures on either edge are never silent: the failure is visible in the outcome.
+All state lives on native beaver primitives (LEG-048).
 """
 
 from __future__ import annotations
@@ -62,6 +63,18 @@ async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
     return item.data
 
 
+def crafted_request(
+    *, task_id: str, payload: dict
+) -> ExecutionRequestMessage:
+    return ExecutionRequestMessage(
+        level_route=("main_a", "summ"),
+        current_index=1,
+        end_of_level_queue="main_a",
+        task_id=task_id,
+        payload=payload,
+    )
+
+
 @pytest.mark.asyncio
 async def test_fake_tool_executes_end_to_end_with_result_deposited(
     beaver_db: AsyncBeaverDB,
@@ -70,14 +83,7 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
     tool = FakeTransformTool()
     registry.register("transform", tool, TransformInput, TransformOutput)
 
-    request = ExecutionRequestMessage(
-        route_pattern_names=["main_a", "summ"],
-        current_index=1,
-        ultimate_return_agent_id="main_a",
-        origin_node_id="main_a",
-        task_id="T-1",
-        payload={"input": {"text": "hello", "factor": 2}},
-    )
+    request = crafted_request(task_id="T-1", payload={"text": "hello", "factor": 2})
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
     agent = ToolAgent(
@@ -97,7 +103,7 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-1"
-    assert result.output["transformed"] == "HELLO"
+    assert result.payload["transformed"] == "HELLO"
 
 
 @pytest.mark.asyncio
@@ -106,14 +112,7 @@ async def test_input_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB) 
     tool = FakeTransformTool()
     registry.register("transform", tool, TransformInput, TransformOutput)
 
-    request = ExecutionRequestMessage(
-        route_pattern_names=["main_a", "summ"],
-        current_index=1,
-        ultimate_return_agent_id="main_a",
-        origin_node_id="main_a",
-        task_id="T-bad-in",
-        payload={"input": {"text": 123}},
-    )
+    request = crafted_request(task_id="T-bad-in", payload={"text": 123})
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
     agent = ToolAgent(
@@ -130,7 +129,7 @@ async def test_input_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB) 
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-bad-in"
-    assert "error" in result.output
+    assert "error" in result.payload
 
 
 @pytest.mark.asyncio
@@ -140,14 +139,7 @@ async def test_output_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB)
     tool.set_output(123)
     registry.register("transform", tool, TransformInput, TransformOutput)
 
-    request = ExecutionRequestMessage(
-        route_pattern_names=["main_a", "summ"],
-        current_index=1,
-        ultimate_return_agent_id="main_a",
-        origin_node_id="main_a",
-        task_id="T-bad-out",
-        payload={"input": {"text": "hi"}},
-    )
+    request = crafted_request(task_id="T-bad-out", payload={"text": "hi"})
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
     agent = ToolAgent(
@@ -164,7 +156,7 @@ async def test_output_schema_rejection_is_never_silent(beaver_db: AsyncBeaverDB)
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-bad-out"
-    assert "error" in result.output
+    assert "error" in result.payload
 
 
 @pytest.mark.asyncio

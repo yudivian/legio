@@ -1,14 +1,13 @@
 """`legio.agents.tool_agent` — the ToolAgent runner (LEG-022, over LEG-023).
 
-The ToolAgent executes a tool step of a route (LEG-010 H1: inline tool steps
-are auto-named agents with their own queue and join). It is an ``AgentBase``
+The ToolAgent executes a tool step of a route. It is an ``AgentBase``
 (LEG-023): the base provides the uniform lease/dispatch/hook/ack ``run()``
-loop, while ``_handle`` implements the tool-specific job — take the ``input``
-from the request's message-carried payload, validate it against the tool's
-``input_schema``, invoke the registered tool as a callable, validate the result
-against the tool's ``output_schema``, and advance/finish (AGENT_LIFECYCLE
-§12.1: the step's state rides in the messages — there is no out-of-message
-staging board).
+loop, while ``_handle`` implements the tool-specific job — take the carried
+state from the request's single ``payload`` container (Schema 2), validate it
+against the tool's ``input_schema``, invoke the registered tool as a callable,
+validate the result against the tool's ``output_schema``, and return the merged
+carried state (AGENT_LIFECYCLE §12.1: the step's state rides in the messages —
+there is no out-of-message staging board). The base routes by position.
 
 Schema failures on either edge are never silent: an error-carrying result is
 deposited instead (see AGENTS.md rule 9).
@@ -49,11 +48,11 @@ class ToolAgent(AgentBase):
         self._tool: Tool = registry.resolve(tool_type)
         self._input_schema, self._output_schema = registry.schemas(tool_type)
 
-    async def _handle(self, request: ExecutionRequestMessage) -> None:
+    async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any]:
         error: str | None = None
         validated_output = None
         try:
-            raw_input = request.payload.get("input", {})
+            raw_input = request.payload
             validated_input = self._input_schema.model_validate(raw_input)
             logger.debug("tool input ok agent=%s task=%s", self._agent_id, request.task_id)
             callable_tool = cast(Callable[..., object], self._tool)
@@ -69,16 +68,15 @@ class ToolAgent(AgentBase):
             error = f"{type(exc).__name__}: {exc}"
 
         if error is not None or validated_output is None:
-            await self._finish(request, {"error": error or "tool produced no output"})
-            return
+            return {"error": error or "tool produced no output"}
 
         output = validated_output.model_dump()
-        carried = merge_carried(request.payload.get("input", {}), output)
-        is_last = request.current_index >= len(request.route_pattern_names) - 1
-        if is_last:
-            await self._finish(request, carried)
-        else:
-            await self._advance(request, output=carried)
+        logger.debug(
+            "tool output ok agent=%s task=%s",
+            self._agent_id,
+            request.task_id,
+        )
+        return merge_carried(request.payload, output)
 
 
 __all__ = ["ToolAgent"]

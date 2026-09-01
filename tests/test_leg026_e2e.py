@@ -2,8 +2,8 @@
 
 First real single-node capability over the REST surface. A client submits to the
 ``transform`` agent through the API; the agent polls its own queue and runs the
-registered fake tool; the root result lands in ``results:{task_id}`` and the
-client reads it back via ``status``.
+registered fake tool; the root result lands in the task's final-result queue
+(``end_of_level_queue``, Schema 2) and the client reads it back via ``status``.
 Boundary is the REST surface; all substrate is shared in-process over a single
 native beaver database (one connection, one manager) as on a single node.
 """
@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
-from legio.manager import results_board
+from legio.naming import queue_key, result_queue_key
 from legio.tools import ToolRegistry
 
 
@@ -84,14 +84,19 @@ async def test_transform_e2e_over_rest_and_agent(
         entry = st.json()
         assert entry["state"] == "completed"
         assert entry["output"] == {"text": "hello", "factor": 3, "transformed": "HELLO"}
-        assert entry["result_key"] == f"results:{task_id}"
+        assert entry["result_key"] == result_queue_key(task_id)
 
-        board = await results_board()
-        assert await board.fetch(task_id) == {
-            "output": {"text": "hello", "factor": 3, "transformed": "HELLO"}
+        result_item = await beaver_db.queue(
+            queue_key(result_queue_key(task_id))
+        ).peek()
+        assert result_item is not None
+        assert result_item.data["payload"] == {
+            "text": "hello",
+            "factor": 3,
+            "transformed": "HELLO",
         }
 
         log_text = caplog.text
         assert "manager submit" in log_text
         assert "agent run" in log_text
-        assert "agent root result" in log_text
+        assert "agent finish" in log_text

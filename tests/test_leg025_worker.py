@@ -9,6 +9,8 @@ real FastAPI routes. All substrate is native beaver (LEG-048), bound via the
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import httpx
 import pytest
 from beaver import AsyncBeaverDB
@@ -42,7 +44,7 @@ class FakeFlipTool:
 
 
 @pytest.fixture
-async def client() -> httpx.AsyncClient:
+async def client() -> AsyncIterator[httpx.AsyncClient]:
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -67,7 +69,8 @@ async def test_submit_creates_task_and_status_returns_it(
     assert entry["task_id"] == task_id
     assert entry["owner"] == "client-a"
     assert entry["token"]["root"] is True
-    assert entry["token"]["route_pattern_names"] == ["flow_alpha"]
+    assert entry["token"]["level"] == 1
+    assert entry["token"]["level_route"] == ["flow_alpha"]
 
 
 @pytest.mark.asyncio

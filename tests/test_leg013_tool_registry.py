@@ -14,8 +14,9 @@ implemented. Conformance is asserted via ``isinstance``, so ``Tool`` must be a
 from __future__ import annotations
 
 import pytest
-from legio.tools import Tool, ToolRegistry
 from pydantic import BaseModel, ValidationError
+
+from legio.tools import Tool, ToolRegistry
 
 
 class TransformInput(BaseModel):
@@ -76,11 +77,11 @@ def test_payloads_validate_against_registered_schemas() -> None:
     input_schema, output_schema = registry.schemas("transform")
 
     input_payload = input_schema(text="hello", factor=3)
-    assert input_payload.text == "hello"
-    assert input_payload.factor == 3
+    assert input_payload.text == "hello"  # type: ignore[attr-defined]
+    assert input_payload.factor == 3  # type: ignore[attr-defined]
 
     output_payload = output_schema(transformed="HELLO")
-    assert output_payload.transformed == "HELLO"
+    assert output_payload.transformed == "HELLO"  # type: ignore[attr-defined]
 
 
 def test_schema_validation_rejects_invalid_payloads() -> None:

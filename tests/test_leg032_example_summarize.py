@@ -29,7 +29,8 @@ from pydantic import BaseModel
 from legio.agents.linguistic_agent import LinguisticAgent
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
-from legio.manager import register_starting_route, results_board
+from legio.manager import register_starting_route
+from legio.naming import queue_key, result_queue_key
 from legio.patterns import load_pattern_specs
 from legio.patterns.sequences import starting_route
 from legio.security import ClientTokenStore
@@ -41,7 +42,7 @@ kind: main
 sequence:
   - name: summ
     linguistic: true
-    prompt: "Summarize {input.text} and {input.lang}."
+    prompt: "Summarize {text} and {lang}."
   - name: assess
     tool: true
     tool_type: assess
@@ -92,7 +93,7 @@ def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
         agent_id="summ",
         db=db,
         lingo_client=lingo_client,
-        prompt_template="Summarize {input.text} and {input.lang}.",
+        prompt_template="Summarize {text} and {lang}.",
         output_model=SummarizeOutput,
     )
     assess = ToolAgent(
@@ -147,22 +148,23 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
             "word_count": 4,
             "result": "[Foxes] A note about foxes.",
         }
-        assert entry["result_key"] == f"results:{task_id}"
+        assert entry["result_key"] == result_queue_key(task_id)
 
-        board = await results_board()
-        assert await board.fetch(task_id) == {
-            "output": {
-                "text": "the quick fox",
-                "lang": "en",
-                "title": "Foxes",
-                "summary": "A note about foxes.",
-                "word_count": 4,
-                "result": "[Foxes] A note about foxes.",
-            }
+        result_item = await beaver_db.queue(
+            queue_key(result_queue_key(task_id))
+        ).peek()
+        assert result_item is not None
+        assert result_item.data["payload"] == {
+            "text": "the quick fox",
+            "lang": "en",
+            "title": "Foxes",
+            "summary": "A note about foxes.",
+            "word_count": 4,
+            "result": "[Foxes] A note about foxes.",
         }
 
         log_text = caplog.text
         assert "manager submit" in log_text
         assert "linguistic call" in log_text
         assert "agent advance" in log_text
-        assert "agent root result" in log_text
+        assert "agent finish" in log_text

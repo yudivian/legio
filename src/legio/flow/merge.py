@@ -23,10 +23,11 @@ def merge_carried(
 ) -> dict[str, Any]:
     """Merge ``output`` into ``incoming``; return the carried state.
 
-    ``incoming`` is the carried state so far (the request's ``payload["input"]``
-    when message-shaped); ``output`` is the step's result. With ``namespace``
-    the output is stored whole under that key; otherwise keys are flat-union'd
-    and the step's keys win on collision (H3). Never mutates ``incoming``.
+    ``incoming`` is the carried state so far (the request's ``payload`` — the
+    single container of Schema 2); ``output`` is the step's result. With
+    ``namespace`` the output is stored whole under that key; otherwise keys are
+    flat-union'd and the step's keys win on collision (H3). Never mutates
+    ``incoming``.
     """
     base = dict(incoming or {})
     if namespace is not None:

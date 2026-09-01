@@ -3,16 +3,18 @@
 Pins the corrected, decoupled model over the real modules:
 
 1. ``manager.submit`` (synthetic parent) deposits the first
-   ``ExecutionRequestMessage`` (root step) into the starting agent's queue
-   (``db.queue("legio:queue:transform")``) and stages the payload.
+   ``ExecutionRequestMessage`` (root step, Schema 2 token with
+   ``end_of_level_queue`` = the task's final-result queue) into the starting
+   agent's queue (``db.queue("legio:queue:transform")``) and stages the payload.
 2. A ``ToolAgent`` runs its own loop and *polls* that queue — it never knows the
    client or the task, only the queue.
-3. The agent advances/finishes by the DAG in the token and, being root, writes
-   the result to ``db.dict("results")``.
-4. ``status`` (polling the board) reflects COMPLETED with the output.
+3. The agent routes by position and, closing level 1, writes the result to
+   ``end_of_level_queue`` (the task's final-result queue).
+4. ``status`` (peeking that queue) reflects COMPLETED with the output.
 
 This validates the critical corrections so that LEG-025/026 are built on a
-faithful decoupled base, not an orchestrated one. No invented substrate layer.
+faithful decoupled base, not an orchestrated one. No invented substrate layer,
+no ``results`` board.
 """
 
 from __future__ import annotations
@@ -22,8 +24,9 @@ from beaver import AsyncBeaverDB
 from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
-from legio.manager import results_board, status, submit
-from legio.naming import queue_key
+from legio.flow import ExecutionResultMessage
+from legio.manager import status, submit
+from legio.naming import queue_key, result_queue_key
 from legio.tools import ToolRegistry
 
 
@@ -69,26 +72,28 @@ async def test_submit_deposits_step_one_in_starting_agent_queue(
     item = await beaver_db.queue(queue_key("transform")).get(block=False)
     assert item.data["task_id"] == task_id
     assert item.data["current_index"] == 0
-    assert item.data["payload"]["input"] == {"text": "hello"}
+    assert item.data["level"] == 1
+    assert item.data["level_route"] == ["transform"]
+    assert item.data["end_of_level_queue"] == result_queue_key(task_id)
+    assert item.data["payload"] == {"text": "hello"}
 
 
 @pytest.mark.asyncio
-async def test_decoupled_root_flow_writes_results_and_status_completed(
+async def test_decoupled_root_flow_writes_result_queue_and_status_completed(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     task_id = await submit("client-a", "transform", {"text": "hello"})
 
-    agent_db = beaver_db
-    board = await results_board()
-    _ = board  # ensures the manager's results dict exists
-
-    agent = build_transform_agent(agent_db)
+    agent = build_transform_agent(beaver_db)
     steps = await agent.run()
     assert steps == 1
 
     entry = await status(task_id, "client-a")
     assert entry.state.value == "completed"
     assert entry.output == {"text": "hello", "transformed": "HELLO"}
-    assert entry.result_key == f"results:{task_id}"
+    assert entry.result_key == result_queue_key(task_id)
 
-    assert await board.fetch(task_id) == {"output": {"text": "hello", "transformed": "HELLO"}}
+    result_item = await beaver_db.queue(queue_key(result_queue_key(task_id))).peek()
+    assert result_item is not None
+    result = ExecutionResultMessage.model_validate(result_item.data)
+    assert result.payload == {"text": "hello", "transformed": "HELLO"}

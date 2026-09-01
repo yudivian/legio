@@ -1,13 +1,11 @@
-"""Red contract tests for LEG-011 — FlowToken & messages v1.
+"""Contract tests for LEG-011 — FlowToken & messages (Schema 2).
 
 These tests define the public contract for the immutable FlowToken and the two
 message types (``ExecutionRequestMessage``, ``ExecutionResultMessage``),
-including ``schema_version``, finality-derived-from-position and root
-handling.
-
-The modules imported here (``legio.flow``, ``legio.flow.messages``) do NOT
-exist yet. This file is intentionally red: it must fail because the production
-code is not implemented.
+including ``schema_version``, finality-derived-from-position, root handling and
+the Schema 2 token fields (``level_route``, ``current_index``,
+``end_of_level_queue``, ``level``, ``launcher_class``, single ``payload``
+container, no ``next_queue``/``ultimate_return_agent_id``/``origin_node_id``).
 """
 
 from __future__ import annotations
@@ -26,29 +24,30 @@ from legio.flow.messages import MessageType
 
 def test_round_trip_preserves_all_fields() -> None:
     token = FlowToken(
-        route_pattern_names=["main_a", "summ"],
+        level_route=("main_a", "summ"),
         current_index=0,
-        ultimate_return_agent_id="client:T-1",
-        origin_node_id="node-1",
+        end_of_level_queue="result:T-1",
+        level=1,
+        launcher_class="main_a",
         root=True,
         task_id="T-1",
     )
     round_tripped = FlowToken.model_validate_json(token.model_dump_json())
     assert round_tripped == token
-    assert round_tripped.route_pattern_names == token.route_pattern_names
+    assert round_tripped.level_route == token.level_route
     assert round_tripped.current_index == token.current_index
-    assert round_tripped.ultimate_return_agent_id == token.ultimate_return_agent_id
-    assert round_tripped.origin_node_id == token.origin_node_id
+    assert round_tripped.end_of_level_queue == token.end_of_level_queue
+    assert round_tripped.level == token.level
+    assert round_tripped.launcher_class == token.launcher_class
     assert round_tripped.root == token.root
     assert round_tripped.task_id == token.task_id
 
 
 def test_request_message_round_trip() -> None:
     request = ExecutionRequestMessage(
-        route_pattern_names=["main_a"],
+        level_route=("main_a",),
         current_index=0,
-        ultimate_return_agent_id="client:T-1",
-        origin_node_id="node-1",
+        end_of_level_queue="result:T-1",
         task_id="T-1",
         payload={"field": "value"},
     )
@@ -58,12 +57,11 @@ def test_request_message_round_trip() -> None:
 
 def test_result_message_round_trip() -> None:
     result = ExecutionResultMessage(
-        route_pattern_names=["main_a", "summ"],
+        level_route=("main_a", "summ"),
         current_index=1,
-        ultimate_return_agent_id="main_a",
-        origin_node_id="summ",
+        end_of_level_queue="main_a",
         task_id="T-1",
-        output={"summary": "text"},
+        payload={"summary": "text"},
     )
     round_tripped = ExecutionResultMessage.model_validate_json(result.model_dump_json())
     assert round_tripped == result
@@ -88,32 +86,29 @@ def test_major_version_mismatch_is_rejected() -> None:
 
 def test_finality_derived_from_position() -> None:
     token = FlowToken(
-        route_pattern_names=["a", "b", "c"],
+        level_route=("a", "b", "c"),
         current_index=1,
-        ultimate_return_agent_id="client:T-2",
-        origin_node_id="node-1",
+        end_of_level_queue="result:T-2",
         root=True,
         task_id="T-2",
     )
-    assert token.is_final(len(token.route_pattern_names)) is False
+    assert token.is_final(len(token.level_route)) is False
 
     final_token = FlowToken(
-        route_pattern_names=["a", "b", "c"],
+        level_route=("a", "b", "c"),
         current_index=2,
-        ultimate_return_agent_id="client:T-2",
-        origin_node_id="node-1",
+        end_of_level_queue="result:T-2",
         root=True,
         task_id="T-2",
     )
-    assert final_token.is_final(len(final_token.route_pattern_names)) is True
+    assert final_token.is_final(len(final_token.level_route)) is True
 
 
 def test_finality_is_not_a_flag() -> None:
     token = FlowToken(
-        route_pattern_names=["a", "b"],
+        level_route=("a", "b"),
         current_index=1,
-        ultimate_return_agent_id="client:T-3",
-        origin_node_id="node-1",
+        end_of_level_queue="result:T-3",
         root=True,
         task_id="T-3",
     )
@@ -121,25 +116,31 @@ def test_finality_is_not_a_flag() -> None:
     assert not hasattr(token, "final")
 
 
-def test_root_token_implies_client_return_target() -> None:
+def test_root_token_does_not_derive_its_return_target() -> None:
+    """Schema 2 (addendum AL): the destination is the submit's end_of_level_queue.
+
+    A root token does *not* invent a ``client:{task_id}`` return; the closer is
+    set who creates the flow, never derived from ``task_id`` and never stored as
+    an ``ultimate_return_agent_id``.
+    """
     root = FlowToken(
-        route_pattern_names=["main_a"],
+        level_route=("main_a",),
         current_index=0,
-        ultimate_return_agent_id="auto-generated",
-        origin_node_id="node-1",
+        end_of_level_queue="result:T-4",
         root=True,
         task_id="T-4",
     )
-    assert root.ultimate_return_agent_id == "client:T-4"
+    assert root.end_of_level_queue == "result:T-4"
     assert root.root is True
+    assert not hasattr(root, "ultimate_return_agent_id")
 
 
 def test_models_are_immutable() -> None:
     with pytest.raises(ValidationError):
-        ExecutionResultMessage().output = {"changed": True}
+        ExecutionResultMessage().payload = {"changed": True}
 
     with pytest.raises(AttributeError):
-        FlowToken().route_pattern_names.append("extra")
+        FlowToken().level_route.append("extra")  # type: ignore[attr-defined]
 
 
 def test_messages_discriminate_by_type() -> None:

@@ -5,17 +5,20 @@ Every agent — atomic (tool/linguistic), composite and root — is a uniform
 the agent's native beaver queue (``db.queue``), takes a native beaver lock as
 the task lease (``db.lock``, LEG-048), dispatches it to the step's job (a
 subclass ``_handle``), applies the ``retry_guard`` / ``monitor`` hooks, and
-routes the outcome — advance to the next stage as an ``ExecutionRequestMessage``,
-or finish by depositing an ``ExecutionResultMessage`` to the parent/client
-(finality by position, LEG-011). The step's input and its accumulated state
-travel inside the messages themselves (AGENT_LIFECYCLE §12.1): there is no
-out-of-message accumulator. ``results`` (``db.dict("results")``)
-is the only board the flow touches, and only for the root/client return.
+routes the outcome by position (Schema 2): advance to the next class of this
+level as an ``ExecutionRequestMessage``, or — at the end of the level — deposit
+an ``ExecutionResultMessage`` to the level's ``end_of_level_queue`` (the
+submit's final-result queue at level 1, AGENT_LIFECYCLE §4.11). The route and
+the destination travel inside the message itself: routing is always derived
+from ``level_route``/``current_index``/``end_of_level_queue``, never from
+caller-owned knowledge, and the step's accumulated state rides in the single
+``payload`` container (Schema 2). There is **no** ``results`` board.
 
-The actual steps (linguistic, tool, composite) plug in via ``_handle``;
-``ToolAgent`` (LEG-022) is one such subclass. Failures are never silent
-(AGENTS.md rule 9): a raised step error is surfaced as an ``error`` result, and
-``retry_guard`` decides whether to re-run the step instead.
+The actual steps (linguistic, tool, composite) plug in via ``_handle``, which
+returns the carried state to route; ``ToolAgent`` (LEG-022) is one such
+subclass. Failures are never silent (AGENTS.md rule 9): a raised step error is
+surfaced as an ``error``-carrying result, and ``retry_guard`` decides whether
+to re-run the step instead.
 
 No invented substrate layer exists (LEG-048): the agent speaks beaver natively,
 exactly as castor's Manager holds a ``db`` and calls ``db.dict``/``db.queue``/
@@ -31,7 +34,6 @@ from typing import Any
 
 from beaver import AsyncBeaverDB
 
-from legio.errors import UnrecoverableError
 from legio.flow import ExecutionRequestMessage, ExecutionResultMessage
 from legio.naming import queue_key
 
@@ -44,8 +46,6 @@ _EVENT_START = "start"
 _EVENT_STEP_DONE = "step_done"
 _EVENT_STEP_ERROR = "step_error"
 _EVENT_IDLE = "idle"
-
-_RESULTS_SCOPE = "results"
 
 
 class AgentBase:
@@ -62,7 +62,6 @@ class AgentBase:
         self._db = db
         self._lease_ttl = lease_ttl
         self._queue = db.queue(queue_key(agent_id))
-        self._results = db.dict(_RESULTS_SCOPE)
         self._retry_guard: RetryGuard | None = None
         self._monitor: Monitor | None = None
         self._attempts: dict[str, int] = {}
@@ -118,9 +117,10 @@ class AgentBase:
         try:
             request = ExecutionRequestMessage.model_validate(dict(item))
             logger.info(
-                "agent run agent=%s task=%s step=%s",
+                "agent run agent=%s task=%s level=%s index=%s",
                 self._agent_id,
                 request.task_id,
+                request.level,
                 request.current_index,
             )
             self._attempts[request.task_id] = self._attempts.get(request.task_id, 0) + 1
@@ -164,9 +164,9 @@ class AgentBase:
         return str(item.get("task_id") or item.get("id") or id(item))
 
     async def _run_guarded(self, request: ExecutionRequestMessage) -> None:
-        """Run the step job, routing a raised failure to retry or error result."""
+        """Run the step job and route its outcome, or route a raised failure."""
         try:
-            await self._handle(request)
+            carried = await self._handle(request)
         except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
             error = f"{type(exc).__name__}: {exc}"
             logger.warning(
@@ -187,9 +187,11 @@ class AgentBase:
                 )
                 await self._retry(request)
                 return
-            await self._finish(request, {"error": error})
+            await self._route_outcome(request, {"error": error})
             return
-        await self._emit(_EVENT_STEP_DONE, request)
+        if carried is not None:
+            await self._route_outcome(request, carried)
+            await self._emit(_EVENT_STEP_DONE, request)
 
     async def _should_retry(
         self, request: ExecutionRequestMessage, error: str, attempt: int
@@ -218,73 +220,80 @@ class AgentBase:
         await lease.renew(self._lease_ttl)
         logger.debug("agent heartbeat agent=%s", self._agent_id)
 
-    async def _advance(self, request: ExecutionRequestMessage, *, output: dict[str, Any]) -> None:
-        """Route the outcome to the next agent in the DAG carried by the token.
+    async def _route_outcome(
+        self, request: ExecutionRequestMessage, payload: dict[str, Any]
+    ) -> None:
+        """Route the carried state to the next class or the level closer.
 
-        The next queue is derived from the token itself — the CPS continuation
-        (``route_pattern_names[current_index + 1]``) — never from caller-owned
-        knowledge (ARCHITECTURE §0/§3). There is no central engine; the agent
-        decides only from its message and the token.
+        Routing is Schema 2 position-based: while ``current_index + 1`` is inside
+        ``level_route`` the outcome advances to ``level_route[current_index + 1]``
+        as an ``ExecutionRequestMessage``; at the end of the level it is
+        deposited to ``end_of_level_queue`` as an ``ExecutionResultMessage`` (the
+        submit's final-result queue at ``level == 1``). The destination is never
+        caller-owned — everything rides in the message (ARCHITECTURE §0/§3).
         """
         next_index = request.current_index + 1
-        names = request.route_pattern_names
-        if next_index >= len(names):
-            raise UnrecoverableError(f"agent {self._agent_id} advanced beyond the end of its DAG")
-        next_agent_id = names[next_index]
-        logger.info(
-            "agent advance agent=%s task=%s to=%s index=%s",
-            self._agent_id,
-            request.task_id,
-            next_agent_id,
-            next_index,
-        )
-        next_request = ExecutionRequestMessage(
-            route_pattern_names=request.route_pattern_names,
-            current_index=next_index,
-            ultimate_return_agent_id=request.ultimate_return_agent_id,
-            origin_node_id=request.origin_node_id,
-            task_id=request.task_id,
-            payload={"input": output},
-        )
-        await self._deliver(next_agent_id, next_request.model_dump(mode="json"))
-
-    async def _finish(self, request: ExecutionRequestMessage, output: dict[str, Any]) -> None:
-        """Route the ExecutionResultMessage to the return agent.
-
-        For a root task (``ultimate_return_agent_id == client:{task_id}``) the
-        result is written to ``results:{task_id}`` **instead of** any queue,
-        and the client reads it back via ``status`` (ARCH §6/§7): there is no
-        per-task ``client:{task_id}`` queue to deposit into. Deliveries are at
-        least-once; exactly-once ack is R-5 (LEG-050).
-        """
-        logger.info(
-            "agent finish agent=%s task=%s to=%s",
-            self._agent_id,
-            request.task_id,
-            request.ultimate_return_agent_id,
-        )
-        if request.ultimate_return_agent_id.startswith("client:"):
-            await self._results.set(request.task_id, {"output": output})
-            logger.info("agent root result agent=%s task=%s", self._agent_id, request.task_id)
+        if next_index < len(request.level_route):
+            next_class = request.level_route[next_index]
+            logger.info(
+                "agent advance agent=%s task=%s level=%s to=%s index=%s",
+                self._agent_id,
+                request.task_id,
+                request.level,
+                next_class,
+                next_index,
+            )
+            next_request = ExecutionRequestMessage(
+                level_route=request.level_route,
+                current_index=next_index,
+                end_of_level_queue=request.end_of_level_queue,
+                level=request.level,
+                launcher_class=request.launcher_class,
+                task_id=request.task_id,
+                payload=payload,
+            )
+            await self._deliver(next_class, next_request.model_dump(mode="json"))
             return
-        result = ExecutionResultMessage(
-            route_pattern_names=request.route_pattern_names,
-            current_index=request.current_index,
-            ultimate_return_agent_id=request.ultimate_return_agent_id,
-            origin_node_id=request.origin_node_id,
-            task_id=request.task_id,
-            output=output,
-        )
-        await self._deliver(request.ultimate_return_agent_id, result.model_dump(mode="json"))
 
-    async def _deliver(self, target_agent_id: str, item: dict[str, Any]) -> None:
-        """Put the message onto the target agent's native beaver queue, by name."""
-        await self._db.queue(queue_key(target_agent_id)).put(dict(item), priority=0.0)
+        if request.level == 1:
+            logger.info(
+                "agent finish agent=%s task=%s to_end_queue=%s",
+                self._agent_id,
+                request.task_id,
+                request.end_of_level_queue,
+            )
+        else:
+            logger.info(
+                "agent branch close agent=%s task=%s level=%s to=%s",
+                self._agent_id,
+                request.task_id,
+                request.level,
+                request.end_of_level_queue,
+            )
+        result = ExecutionResultMessage(
+            level_route=request.level_route,
+            current_index=request.current_index,
+            end_of_level_queue=request.end_of_level_queue,
+            level=request.level,
+            launcher_class=request.launcher_class,
+            task_id=request.task_id,
+            payload=payload,
+        )
+        await self._deliver(request.end_of_level_queue, result.model_dump(mode="json"))
+
+    async def _deliver(self, target: str, item: dict[str, Any]) -> None:
+        """Put the message onto a queue by name (class or level closer)."""
+        await self._db.queue(queue_key(target)).put(dict(item), priority=0.0)
 
     async def _handle(
         self, request: ExecutionRequestMessage
-    ) -> None:  # pragma: no cover - abstract
-        """Execute the step's job. Implemented by concrete agents."""
+    ) -> dict[str, Any] | None:  # pragma: no cover - abstract
+        """Execute the step's job; return the carried state (or None to drop).
+
+        Implemented by concrete agents. A returned dict is routed by position by
+        ``_route_outcome``; a raised exception is surfaced as an error result by
+        ``_run_guarded``.
+        """
         raise NotImplementedError
 
 

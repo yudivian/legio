@@ -2,12 +2,16 @@
 
 The mini-manager owns task submission and status lookup. It is async and
 polling-only (AGENTS.md rule 8): it never blocks or sleeps. All state lives on
-native beaver primitives — the ``tasks`` dictionary and the ``results``
-dictionary (LEG-048, no invented substrate layer): ``db.dict("tasks")`` /
-``db.dict("results")``, and per-agent queues ``db.queue("legio:queue:<agent_id>")``.
-Task result output lives on the ``results`` dictionary, read by the client via
-``status``; there is no per-task ``client:{task_id}`` queue (ARCH §7). Task ids
-obey the naming contract ``<origin>:<uuid>`` (LEG-016).
+native beaver primitives (LEG-048, no invented substrate layer): the ``tasks``
+dictionary and the per-agent queues ``db.queue("legio:queue:<agent_id>")``.
+
+Task submission (Schema 2) seeds the starting pattern's level-1 route with an
+``end_of_level_queue`` = the task's final-result queue
+(``result_queue_key(task_id)``); whichever class closes the level deposits the
+``ExecutionResultMessage`` there, and ``status`` reads it back from that queue
+(peek, non-destructive). There is **no** ``results`` board and no
+``client:{task_id}`` family (ARCH §7, addendum AL). Task ids obey the naming
+contract ``<origin>:<uuid>`` (LEG-016).
 """
 
 from __future__ import annotations
@@ -20,13 +24,12 @@ from typing import Any
 from beaver import AsyncBeaverDB
 from pydantic import BaseModel
 
-from legio.flow import ExecutionRequestMessage, FlowToken
-from legio.naming import queue_key
+from legio.flow import ExecutionRequestMessage, ExecutionResultMessage, FlowToken
+from legio.naming import queue_key, result_queue_key
 
 logger = logging.getLogger(__name__)
 
 _TASKS_SCOPE = "tasks"
-_RESULTS_SCOPE = "results"
 
 _DEFAULT_DB_PATH = "legio.db"
 _DEFAULT_NODE_ID = "local"
@@ -109,8 +112,15 @@ async def tasks_board():
 
 
 async def results_board():
-    """Return the ``results`` dictionary (native beaver dict)."""
-    return (await db()).dict(_RESULTS_SCOPE)
+    """DEPRECATED (Schema 2): no results board exists; results live in a queue.
+
+    Retained only so older callers fail loudly instead of silently writing to a
+    board that the flow no longer writes to. Prefer ``status`` / the token's
+    ``end_of_level_queue``.
+    """
+    raise NotImplementedError(
+        "results board removed (Schema 2): results live on the final-result queue"
+    )
 
 
 def agent_queue(agent_id: str) -> Any:
@@ -164,21 +174,25 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
     """Submit a task; returns its ``task_id``.
 
     The synthetic parent (ARCH §6) resolves the starting pattern's static route
-    (default: the single agent), stages the inputs on the ``tasks`` dictionary
-    and deposits the first ``ExecutionRequestMessage`` (the root step) into the
-    first agent's queue. From there the flow is fully decoupled: agents poll
-    their own queues and route by the DAG in the token.
+    (default: the single agent), creates the task's final-result queue, stages
+    the inputs on the ``tasks`` dictionary and deposits the first
+    ``ExecutionRequestMessage`` (the root step, Schema 2 token with
+    ``end_of_level_queue`` = final-result queue) into the first agent's queue.
+    From there the flow is fully decoupled: agents poll their own queues and
+    route by the token.
     """
     task_id = _new_task_id()
     route = _resolve_route(starting_agent)
     first_agent = route[0]
+    result_queue = result_queue_key(task_id)
     token = FlowToken(
-        route_pattern_names=route,
+        level_route=route,
         current_index=0,
-        ultimate_return_agent_id=f"client:{task_id}",
-        origin_node_id=_node_id,
-        root=True,
+        end_of_level_queue=result_queue,
+        level=1,
+        launcher_class=first_agent,
         task_id=task_id,
+        root=True,
     )
     tasks = await tasks_board()
     await tasks.set(
@@ -192,26 +206,33 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
     )
 
     request = ExecutionRequestMessage(
-        route_pattern_names=route,
+        level_route=route,
         current_index=0,
-        ultimate_return_agent_id=f"client:{task_id}",
-        origin_node_id=_node_id,
+        end_of_level_queue=result_queue,
+        level=1,
+        launcher_class=first_agent,
         task_id=task_id,
-        payload={"input": payload},
+        payload=payload,
     )
     await agent_queue(first_agent).put(request.model_dump(mode="json"), priority=0.0)
     logger.info(
-        "manager submit task=%s owner=%s starting_agent=%s route=%s",
+        "manager submit task=%s owner=%s starting_agent=%s route=%s result_queue=%s",
         task_id,
         client_id,
         starting_agent,
         ",".join(route),
+        result_queue,
     )
     return task_id
 
 
 async def status(task_id: str, client_id: str | None) -> TaskEntry:
-    """Return the task entry if ``client_id`` owns it, else raise."""
+    """Return the task entry if ``client_id`` owns it, else raise.
+
+    The completed result is read from the task's final-result queue (Schema 2,
+    ``result_queue_key(task_id)``) via a non-destructive ``peek``; an empty queue
+    means the task is still pending/running.
+    """
     tasks = await tasks_board()
     data = await tasks.fetch(task_id)
     if data is None:
@@ -225,19 +246,24 @@ async def status(task_id: str, client_id: str | None) -> TaskEntry:
             client_id,
         )
         raise PermissionError("task is scoped to its owning client")
-    results = await results_board()
-    stored = await results.fetch(task_id)
-    output = stored.get("output") if isinstance(stored, dict) else None
+
     state = TaskState(data["state"])
-    if stored is not None:
+    result_key: str | None = None
+    output: dict[str, Any] | None = None
+    result_queue = result_queue_key(task_id)
+    result_item = await (await db()).queue(queue_key(result_queue)).peek()
+    if result_item is not None:
+        result = ExecutionResultMessage.model_validate(result_item.data)
+        output = dict(result.payload)
         state = TaskState.COMPLETED
+        result_key = result_queue
     return TaskEntry(
         task_id=task_id,
         owner=data["owner"],
         token=FlowToken.model_validate(data["token"]),
         state=state,
         output=output,
-        result_key=f"results:{task_id}" if stored is not None else None,
+        result_key=result_key,
     )
 
 
@@ -251,7 +277,6 @@ __all__ = [
     "db",
     "register_starting_route",
     "reset_manager",
-    "results_board",
     "status",
     "submit",
     "tasks_board",

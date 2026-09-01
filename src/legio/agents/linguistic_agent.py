@@ -3,9 +3,9 @@
 Runs a linguistic step of a route: resolves its prompt template against the
 message-carried payload (LEG-010 H2 dotted paths + system vars), asks an
 injected lingo client (an ``LLM``/``MockLLM`` fake) for a structured pydantic
-record validated against the pattern's compiled ``output_schema``, and deposits
-a result to the parent or the client (finality by position, LEG-011), or
-advances to the next step of the route. The step's state rides in the messages
+record validated against the pattern's compiled ``output_schema``, and returns
+the merged carried state, which the base routes by position (finality by
+position + ``level``, Schema 2). The step's state rides in the messages
 (AGENT_LIFECYCLE §12.1): there is no out-of-message staging board.
 
 The call is a single ``create(model, [system prompt])`` round-trip (LEG-030 v1
@@ -56,7 +56,7 @@ class LinguisticAgent(AgentBase):
         merged_vars.setdefault("current_date", datetime.now(UTC).date().isoformat())
         self._system_vars = merged_vars
 
-    async def _handle(self, request: ExecutionRequestMessage) -> None:
+    async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any]:
         scoped: dict[str, Any] = dict(request.payload)
         logger.debug(
             "linguistic input agent=%s task=%s keys=%s",
@@ -73,17 +73,12 @@ class LinguisticAgent(AgentBase):
         messages = [Message.system(prompt)]
         result = await self._lingo.create(self._output_model, messages)
         output = result.model_dump()
-        carried = merge_carried(request.payload.get("input", {}), output)
         logger.info(
             "linguistic result agent=%s task=%s",
             self._agent_id,
             request.task_id,
         )
-        is_last = request.current_index >= len(request.route_pattern_names) - 1
-        if is_last:
-            await self._finish(request, carried)
-        else:
-            await self._advance(request, output=carried)
+        return merge_carried(request.payload, output)
 
 
 __all__ = ["LinguisticAgent"]

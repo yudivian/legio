@@ -1,8 +1,19 @@
 """`legio.flow.messages` — schema version, immutable base and envelope types.
 
 Only two message types exist: ``ExecutionRequestMessage`` (client → root agent)
-and ``ExecutionResultMessage`` (agent → parent or client). ``MessageType``
-discriminates the two. Domain-free: payload/output are opaque dicts.
+and ``ExecutionResultMessage`` (agent → parent or final-result queue).
+``MessageType`` discriminates the two. Domain-free: ``payload`` is the single
+carried-data container (Schema 2) — the same container carries the accepted
+request facts and the accumulated output; there is no separate ``output`` field
+and no ``input`` nesting.
+
+Token fields (Schema 2, AGENT_LIFECYCLE §4.11): ``level_route`` (the classes of
+this level), ``current_index`` (0-based position), ``end_of_level_queue`` (the
+queue that closes this level — the submit's final-result queue at level 1, a
+parallel's gathering queue for branches), ``level`` (branch depth, starts at 1),
+``launcher_class`` (informational) and ``task_id``. There is no ``next_queue`` /
+``ultimate_return_agent_id`` / ``origin_node_id``: routing is by
+position + ``level`` and the end of a level lands on ``end_of_level_queue``.
 """
 
 from __future__ import annotations
@@ -39,25 +50,26 @@ class ImmutableMessage(BaseModel):
         return value
 
     schema_version: int = Field(default=SCHEMA_VERSION, frozen=True)
-    route_pattern_names: tuple[str, ...] = Field(default_factory=tuple)
+    level_route: tuple[str, ...] = Field(default_factory=tuple)
     current_index: int = 0
-    ultimate_return_agent_id: str = ""
-    origin_node_id: str = ""
+    end_of_level_queue: str = ""
+    level: int = 1
+    launcher_class: str = ""
     task_id: str = ""
 
 
 class ExecutionRequestMessage(ImmutableMessage):
-    """A request to execute a route, issued by the client."""
+    """A request to execute a level route, issued by the client."""
 
     message_type: MessageType = MessageType.EXECUTION_REQUEST
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutionResultMessage(ImmutableMessage):
-    """The output of a completed step, deposited to parent/client."""
+    """The accumulated output of a completed level, deposited to the closer."""
 
     message_type: MessageType = MessageType.EXECUTION_RESULT
-    output: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 __all__ = [

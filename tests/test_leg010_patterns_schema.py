@@ -197,8 +197,8 @@ def test_compile_output_schema_with_union_array_nested_recursive() -> None:
         notes={"a": 1},
         outline=[{"key": "n1", "children": [{"key": "n1.1", "children": []}]}],
     )
-    assert good.tags == ["a", "b"]
-    assert good.score is None
+    assert good.tags == ["a", "b"]  # type: ignore[attr-defined]
+    assert good.score is None  # type: ignore[attr-defined]
 
     with pytest.raises(ValidationError):
         model(tags=[1, 2], score="1.5", notes=None, outline=[])

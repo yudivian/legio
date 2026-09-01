@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from collections.abc import AsyncIterator
 
 import pytest
 from beaver import AsyncBeaverDB
@@ -21,7 +22,7 @@ logger = logging.getLogger("legio.tests.conftest")
 
 
 @pytest.fixture
-async def beaver_db() -> AsyncBeaverDB:
+async def beaver_db() -> AsyncIterator[AsyncBeaverDB]:
     """Bind the manager to a fresh temp beaver db; yield the shared connection."""
     d = tempfile.mkdtemp()
     path = os.path.join(d, "test.db")

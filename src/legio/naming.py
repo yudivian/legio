@@ -1,13 +1,13 @@
 """`legio.naming` — identifiers and persisted names (LEG-016, LEG-048).
 
-Every identifier (node, agent, tool, task) has a validating contract. The
-``client:`` family is reserved for root returns and cannot be used for regular
-agents.
+Every identifier (node, agent, tool, task) has a validating contract. There is
+no ``client:`` family (Schema 2, addendum AL): root results land on the
+submit-created final-result queue, addressed by ``result_queue_key``.
 
-The only persisted namespace legio names directly is the per-agent queue:
-``legio:queue:<agent_id>`` (LEG-048). Boards are beaver dictionaries addressed
-by their scope name directly (``db.dict(scope)``), so they need no extra key
-namespace. Everything else is beaver's native naming.
+The only persisted namespaces legio names directly are the per-agent queue
+``legio:queue:<agent_id>`` and the per-task final-result queue
+``legio:queue:result:<task_id>`` (LEG-048). Boards are not used for flow
+results. Everything else is beaver's native naming.
 """
 
 from __future__ import annotations
@@ -25,6 +25,16 @@ QUEUE_NAMESPACE = "legio:queue:"
 def queue_key(agent_id: str) -> str:
     """Full namespaced beaver queue name for an agent (LEG-048)."""
     return f"{QUEUE_NAMESPACE}{agent_id}"
+
+
+def result_queue_key(task_id: str) -> str:
+    """The queue *name* (relative) of a task's final-result queue (Schema 2).
+
+    The submit creates this as the token's ``end_of_level_queue`` at level 1 and
+    ``status`` reads the completed result back from it. The relative name is
+    resolved to a beaver queue via ``queue_key`` when delivering/reading.
+    """
+    return f"result:{task_id}"
 
 
 _NODE_RE = re.compile(r"^[^@]+@[^@]+$")
@@ -75,6 +85,7 @@ __all__ = [
     "QUEUE_NAMESPACE",
     "is_reserved_agent",
     "queue_key",
+    "result_queue_key",
     "validate_agent_id",
     "validate_node_id",
     "validate_task_id",

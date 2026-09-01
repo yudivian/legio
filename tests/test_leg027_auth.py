@@ -21,7 +21,7 @@ from legio.security import ClientTokenStore
 from legio.tools import ToolRegistry
 
 if typing.TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator
 
     from fastapi import FastAPI
 
@@ -44,7 +44,7 @@ def bearer(token: str) -> dict[str, str]:
 
 
 @pytest.fixture
-async def ac(app: FastAPI) -> Iterator[httpx.AsyncClient]:
+async def ac(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
