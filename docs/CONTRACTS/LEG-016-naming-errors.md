@@ -19,9 +19,12 @@ type-safe across the codebase, logs and APIs.
 - **Identifiers** are cleared, immutable strings; each type has a regex and a
   reserved-value set:
   - node: `node_name@host` (interned, immutable)
-  - agent: service/domain names; `client:{task_id}` is reserved for the mini-manager
+  - agent: service/domain names (class-based per Schema 2; no `client:` family —
+    the destination lives in the token as `end_of_level_queue`, not in an agent id)
   - tool: arbitrary (consumer namespaced)
-  - task: `{origin_node_id}:{uuid}`, globally unique
+  - task: `{uuid}`, globally unique; its final result is addressed by the helper
+    `result_queue_key(task_id)` → `result:<task_id>` (the submit-seeded
+    `end_of_level_queue` at level 1)
 - **Errors** are typed exceptions with `code`, `recoverable: bool`, and
   `retriable: bool` (feeds LEG-061); boundaries (HTTP, CLI, logs) render them
   consistently.

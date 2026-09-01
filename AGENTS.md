@@ -46,8 +46,8 @@ implementing agents.
    repo — not even as examples or validation material.
 8. **Polling only.** The public API never emits callbacks or push events.
    Nothing sleeps; scheduling is a field (`next_run_at`).
-9. **Errors are never silent.** Failures are visible in boards and in the task
-   result; exhausted attempts go to a DLQ. Never swallow exceptions.
+9. **Errors are never silent.** Failures are visible in registries and in the
+   task result; exhausted attempts go to a DLQ. Never swallow exceptions.
 10. **Before coding, read** `docs/ARCHITECTURE.md`, `docs/CONTRIBUTING.md`,
     the relevant section of `docs/PLAN.md`, and the latest journal.
 11. **Log every observable event.** legio is a concurrent, decoupled engine; it

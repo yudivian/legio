@@ -1,24 +1,27 @@
-# LEG-072 — Pattern compile: output_schema → pydantic models
+# LEG-072 — Pattern compile: `output_schema` → pydantic models (Schema 1)
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** DRAFT (Schema 1 alignment; awaiting maintainer approval)
 - **Rasante:** R-7
 - **GitHub issue:** #42
 - **Source:** `docs/PLAN.md` (LEG-072)
-- **Depends on:** LEG-010 (H4)
+- **Depends on:** LEG-010 (S1 — the `output_schema` mini-grammar)
 
 ## Goal
-Compile each pattern's declared `output_schema` into validating pydantic
-models — supporting unions, arrays, nested objects and recursive schemas.
+Compile each agent's declared `output_schema` (Schema 1 mandatory output
+contract) into validating pydantic models — supporting unions, arrays, nested
+objects and recursive schemas — so outputs are validated at the boundary.
 
 ## Scope
 - **In scope:** schema → pydantic compilation, boundary validation on output.
 - **Out of scope:** tool/linguistic runtime (they consume compiled models).
 
 ## Contract & design
-- `output_schema` (JSON-ish/YAML form) compiles at load into a pydantic model;
+- The `output_schema` mini-grammar (used identically by Schema 1 agents and for
+  the tool/linguistic output edges) compiles at load into a pydantic model;
   H4: unions, arrays, nested objects, recursion all supported.
-- Compiled model validates at boundaries (same name for atomic and composite
-  outputs), giving DB-boundary rigor to step outputs.
+- Every agent declares a mandatory `output_as`/`output_type`/`output_schema`
+  (Schema 1); the compiled model validates the produced output at the boundary,
+  giving DB-boundary rigor to step outputs (rule 9).
 
 ## Interface
 - `compile_pattern_schemas(catalog)`; compiled models consumed by edges.

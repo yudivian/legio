@@ -8,7 +8,7 @@ removed before a reviewed PR to this file. Managed with `uv`. Python runtime:
 
 | Package | Role in legio | Notes |
 |---|---|---|
-| `beaver-db` | boards, priority queues, locks (the substrate) | pinned by `uv.lock` at first install |
+| `beaver-db` | registries, priority queues, locks (the substrate) | pinned by `uv.lock` at first install |
 | `lingo-ai` | LLM + structured output for linguistic agents | provides `LLM`, `eng.create/decide/choose`, `MockLLM`, native tool-calling |
 | `pydantic` (>=2) | types/validation of message, token, patterns, schemas | lingua franca of the system |
 | `pydantic-settings` | configuration from env | node id, paths, peers |

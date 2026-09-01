@@ -80,12 +80,13 @@ validate → journal.
 3. **Polling only**: the public API exposes no callbacks or events; nothing
    sleeps — it is a field (`next_run_at`).
 4. **Messages and token immutable and typed** (pydantic), with `schema_version`.
-5. **Errors are never silent**: visible in boards + result with error + DLQ;
-   swallowing exceptions is forbidden.
+5. **Errors are never silent**: visible in registries + result with error +
+   DLQ; swallowing exceptions is forbidden.
 6. **Namespacing of the names legio owns**: the only invented namespace is the
-   per-agent queue (`legio:queue:<agent>`, via `legio.naming.queue_key`); boards
-   are beaver dicts addressed by their scope name directly (`db.dict(scope)`),
-   so domains/nodes sharing a beaver do not collide on scopes.
+   per-agent queue (`legio:queue:<agent>`, via `legio.naming.queue_key`);
+   registries are beaver dicts addressed by their scope name directly
+   (`db.dict(scope)`), so domains/nodes sharing a beaver do not collide on
+   scopes.
 7. **Concurrency**: locks with TTL + `renew`; per-resource semaphores; **only
    the reaper re-queues**; replicas never reach consensus through their own
    process state.

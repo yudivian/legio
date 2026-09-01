@@ -62,7 +62,7 @@ beaver primitives by name, exactly as castor's Manager calls `db.dict` /
   (`legio:queue:<agent>`, `legio.naming.queue_key`); registries are beaver
   dicts addressed by scope name directly.
 - **Messages** — `ExecutionRequestMessage` (starts/deposits a step) and
-  `ExecutionResultMessage` (returns), always carried as queue item payloads
+  `ExecutionResultMessage` (returns), always serialized as queue item payloads
   (`model_dump(mode="json")`).
 
 ## 3. FlowToken — the contract that moves everything

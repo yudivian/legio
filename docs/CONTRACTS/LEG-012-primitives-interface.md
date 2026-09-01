@@ -16,7 +16,7 @@
 > field, no scheduler, scope model) still holds; the *wrapper API* does not.
 
 ## Goal
-Pin the interface of the three substrate primitives (Queue, Board, Lock) that
+Pin the interface of the three substrate primitives (Queue, Registry, Lock) that
 the whole system builds on, over beaver.
 
 ## Scope
@@ -27,10 +27,11 @@ the whole system builds on, over beaver.
 ## Contract & design
 - **Queue** — persistent priority queue per agent; `push` / `lease` / `ack` /
   `pop`; `next_run_at` schedules retries as a field (no scheduler).
-- **Board** — persistent dict per scope: `results:{task_id}`, `tasks`,
-  `gates`, `catalog`, `outbox`, `semaphore`.
+- **Registry** — persistent dict per scope: `tasks` (TaskRegistry), `gates`,
+  `catalog`, `outbox`, `semaphore` (no `results:{task_id}` — Schema 2 delivers
+  the root result to the task's final-result queue, not a registry).
 - **Lock** — TTL + `renew`; it is the task lease; expiry makes items reclaimable.
-- Namespacing: `legio:queue:<agent>`, `legio:board:<scope>:<key>`.
+- Namespacing: `legio:queue:<agent>`, `legio:registry:<scope>`.
 
 ## Interface
 - Python interface definitions (e.g. `asyncio`-friendly protocol) for the three

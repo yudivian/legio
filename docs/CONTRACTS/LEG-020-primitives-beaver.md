@@ -16,7 +16,7 @@
 > file (see `docs/ARCHITECTURE.md` §2 and `tests/conftest.py`).
 
 ## Goal
-Implement Queue, Board and Lock on top of beaver (Redis), satisfying the
+Implement Queue, Registry and Lock on top of beaver (Redis), satisfying the
 LEG-012 contract.
 
 ## Scope
@@ -28,7 +28,8 @@ LEG-012 contract.
 - **Queue:** sorted-set based (score = priority/schedule epoch) with
   `next_run_at` support; `lease` vs `ack` split so re-queuing after lease
   expiry is safe (LEG-060); dedup on push (idempotency key for LEG-093).
-- **Board:** persistent hash/key-space per scope with TTL on volatile entries.
+- **Registry:** persistent hash/key-space per scope with TTL on volatile
+  entries.
 - **Lock:** beaver lock with TTL + `renew` (the lease); a lock is bound to a
   queue item id.
 - Namespacing strictly per LEG-012; all calls async.

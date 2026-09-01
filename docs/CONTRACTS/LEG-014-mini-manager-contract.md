@@ -1,4 +1,4 @@
-# LEG-014 — Mini-manager contract (v1)
+# LEG-014 — Mini-manager contract (Schema 2)
 
 - **Status:** CLOSED (implementation green, maintainer approved, issue closed)
 - **Rasante:** R-1 (contract)
@@ -6,31 +6,35 @@
 - **Source:** `docs/PLAN.md` (LEG-014)
 - **Depends on:** ARCHITECTURE §3, LEG-011, LEG-015
 
-> **Revised 2026-08-30:** the `client:{task_id}` pseudo-agent, its termination
-> flow and the stuck-client reaper were **removed** — R-1 over-engineering,
-> redundant with the `results` board from day one. The root result lands on
-> `results:{task_id}` only; the client reads it via `status`. (The R-6 lease
-> reaper, LEG-060, and the TaskManager reaper, R-8, are unrelated and remain.)
-> **Re-revised 2026-08-30:** all "worker" language removed — an agent runs its
-> own internal loop; there is no pseudo-agent and no client queue at all.
+> **Revised 2026-09-01 (Schema 2, addenda AJ/AL/AM + Fase 1):** the
+> `client:{task_id}` pseudo-agent, its termination flow, the stuck-client reaper
+> and the `results:{task_id}` board were all **removed**. The submit creates the
+> task's **final-result queue** (`result_queue_key(task_id)`) and seeds it as
+> the root token's `end_of_level_queue`; the class that closes the flow at
+> `level == 1` deposits the final result there. The client reads it back via
+> `status` (a non-destructive `peek`). (The R-6 lease reaper, LEG-060, and the
+> TaskManager reaper, R-8, are unrelated and remain.) There is **no** board and
+> **no** `client:{task_id}` queue — the destination lives in the token.
 
 ## Goal
-Define the mini-manager (`submit`/`status` backed by boards) and how root-task
-results are delivered to the client.
+Define the mini-manager (`submit`/`status`) and how root-task results are
+delivered to the client.
 
 ## Scope
-- **In scope:** `submit`, `status`, root result delivery to `results:{task_id}`,
-  task ownership tagging.
+- **In scope:** `submit`, `status`, root result delivery to the task's
+  **final-result queue**, task ownership tagging.
 - **Out of scope:** REST surface (LEG-025), security/auth (LEG-027/LEG-017).
 
 ## Contract & design
-- Submission: `submit(client_id, agent, payload)` → creates task with a
-  root FlowToken (`root=True`, `ultimate_return_agent_id = client:{task_id}`),
-  polls step 1 into the starting agent's queue, tags the `tasks` entry with
-  owner `client_id`, returns `task_id`.
-- Root delivery: when the root task finishes, the last agent writes the result
-  to `results:{task_id}` (the root result board) — there is **no**
-  `client:{task_id}` queue. The client reads it back via `status`.
+- Submission: `submit(client_id, agent, payload)` → creates a task, builds a
+  level-1 root token whose `end_of_level_queue = result_queue_key(task_id)`
+  (the final-result queue), polls step 1 into the starting agent's queue, tags
+  the `tasks` entry with owner `client_id`, returns `task_id`.
+- Root delivery: when the root task finishes (end-of-sequence **and**
+  `level == 1`, addendum AV) the closing agent writes the result to its
+  `end_of_level_queue`, i.e. the final-result queue `result:<task_id>` — there
+  is **no** `results:{task_id}` board and **no** `client:{task_id}` queue. The
+  client reads it back via `status`.
 - Ownership: `status`/results only readable by the owning client (LEG-017).
 
 ## Interface
@@ -39,8 +43,8 @@ results are delivered to the client.
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-014), verbatim:
 - Mini-manager accepts a `submit` request, tags the task with the owner, and
-  delivers the root result to `results:{task_id}`; the submitted task stays
-  visible (pending) until the root result arrives.
+  delivers the root result to the task's final-result queue; the submitted task
+  stays visible (pending) until the root result arrives.
 
 ## Tests
 - Contract tests (red first): submit, root delivery, ownership denial.

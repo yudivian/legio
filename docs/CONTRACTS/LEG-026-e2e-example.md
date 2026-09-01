@@ -18,7 +18,8 @@ reads back via status — proving the R-2 plumbing with a domain-free example.
 
 ## Contract & design
 - In-repo (no consumer material): `transform` agent; a fake, deterministic tool
-  registered in the registry; root task deposited as `client:{task_id}` result.
+  registered in the registry; root task result deposited to the task's
+  **final-result queue** (`result:<task_id>`) at flow close.
 - Runs against real beaver in green.
 
 ## Interface
@@ -26,8 +27,9 @@ reads back via status — proving the R-2 plumbing with a domain-free example.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-026), verbatim:
-- Submitting to `transform` runs the fake tool, deposits the result in
-  `results:{task_id}` and `status` returns it; a same example visible in logs.
+- Submitting to `transform` runs the fake tool, deposits the result in the
+  task's final-result queue and `status` returns it; a same example visible in
+  logs.
 
 ## Tests
 - The example as a green test treating the REST surface as boundary.

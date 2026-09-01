@@ -11,15 +11,16 @@ First linguistic domain-free example: a summarizer flow (linguistic step)
 feeding a tool step, validating pass-down of structured output into tool calls.
 
 ## Scope
-- **In scope:** in-repo example; linguistic→tool composition; scoped board
+- **In scope:** in-repo example; linguistic→tool composition; scoped registry
   wiring.
 - **Out of scope:** real LLM guarantees (fake lingo suffices).
 
 ## Contract & design
 - In-repo example: `summarize` flow = `[linguistic → tool]`. Linguistic
   produces structured output (fake lingo); tool consumes the dot-opened
-  record; result lands in `results:{task_id}`.
-- Tests assert board scoping and structured pass-down.
+  record; the final result lands in the task's **final-result queue**
+  (`result:<task_id>`) at flow close.
+- Tests assert final-result-queue scoping and structured pass-down.
 
 ## Interface
 - Consumes the LEG-025 REST surface (through LEG-027 auth).

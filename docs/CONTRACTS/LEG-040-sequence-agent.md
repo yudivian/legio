@@ -17,7 +17,7 @@ next class's queue (AGENT_LIFECYCLE §12.3). No gathering queue.
 ## Scope
 
 - **In scope:** sequential deposit of steps as routes over the next classes'
-  inboxes, parent continuation (LEG-051), cumulative flat merge.
+  inboxes, parent continuation (LEG-051), building the payload across steps.
 - **Out of scope:** parallel mode (LEG-041), fan-in identity/path (LEG-052).
 
 ## Contract & design
@@ -31,12 +31,13 @@ next class's queue (AGENT_LIFECYCLE §12.3). No gathering queue.
   `end_of_level_queue` — the creator's gathering queue if `level > 1` (branch
   close) or the submit's final-result queue if `level == 1` (flow end). Nothing
   loops back through the sequence.
-- Merge: cumulative (H3) — each step's output is flat-merged into the carried
-  state of the outgoing token (`legio.flow.merge_carried`; `output_as` as the
-  `namespace` on collision), so a chain of any length keeps every earlier
-  step's keys, in order. There is no out-of-message accumulator; the merged
-  dict is exactly what the next request carries as `payload` (or what the flow
-  end delivers to the final-result queue).
+- Payload build across steps (H3) — each step receives the incoming payload,
+  applies its outcome and **builds the next payload** via
+  `legio.flow.build_payload` (`output_as` as the `namespace` on collision), so
+  a chain of any length keeps every earlier step's keys, in order. There is no
+  out-of-message accumulator; the built dict is exactly what the next request
+  carries as `payload` (or what the flow end delivers to the final-result
+  queue).
 - Parent continuation: at branch close the result returns via `end_of_level_queue`
   to the launching parallel's gathering queue (LEG-051).
 
@@ -53,7 +54,7 @@ From `docs/PLAN.md` (LEG-040), verbatim:
 
 ## Tests
 
-- Contract tests (red first): order-dependency, cumulative merge.
+- Contract tests (red first): order-dependency, payload build across steps.
 
 ## Validation case
 

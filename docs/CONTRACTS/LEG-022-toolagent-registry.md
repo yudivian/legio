@@ -1,43 +1,67 @@
-# LEG-022 — ToolAgent + tool registry (implementation)
+# LEG-022 — ToolAgent (Schema 1/2/3)
 
-- **Status:** CLOSED (implementation green, maintainer approved, issue closed)
+- **Status:** REVISED 2026-09-01 (Schema 1 pattern + Schema 2 token + Schema 3
+  tools; supersedes the v1 CLOSED contract of the same name)
 - **Rasante:** R-2
 - **GitHub issue:** #14
 - **Source:** `docs/PLAN.md` (LEG-022)
-- **Depends on:** LEG-013, LEG-011
+- **Depends on:** LEG-013 (Schema 3), LEG-011 (Schema 2), LEG-010 (Schema 1)
+
+> **Note on implementation state.** The current `ToolAgent` (`agents/tool_agent.py`)
+> is still the v1 runner: it takes the whole payload, validates it
+> against the tool's pydantic `input_schema`, calls the tool, validates the
+> output. Per the approved Schemas the ToolAgent must instead execute a
+> `kind: tool` agent's **terse `parameters`** (`{arg: dotted.path | literal}`)
+> as the call, against the `tool: <name>` in `available_tools` (Schema 3),
+> validated against the tool's signature **at execution time** (addendum L —
+> the v1 whole-state→kwargs behavior is the migration defect). The code
+> migration is pending; this document is the Schema target contract.
 
 ## Goal
-Implement the ToolAgent: lease a tool work-item from its queue, take the
-`input` from the message-carried payload, call the registered tool, validate
-the output and deposit the result token (AGENT_LIFECYCLE §12.1: step state
-rides in the messages; there is no out-of-message staging board).
+Implement the ToolAgent execution path: a `kind: tool` agent that resolves its
+terse `parameters` against the incoming payload, invokes the bound
+`tool: <name>` (a Schema 3 resource), validates the contracts on the edges, and
+advances the route by position (Schema 2).
 
 ## Scope
-- **In scope:** the ToolAgent execution path, result deposit.
-- **Out of scope:** concurrency semaphores (LEG-082), retries (R-6).
+- **In scope:** the ToolAgent execution path (parameters resolution → call →
+  contract validation → route advance / deposit).
+- **Out of scope:** concurrency semaphores (LEG-082), retries (R-6), runtime
+  tool-loading mechanics (decided at implementation, not the schema).
 
 ## Contract & design
-- Per LEG-010 H1: inline tool steps are auto-named agents with their own queue
-  and join; ToolAgent consumes them.
-- Flow: lease item (queue contract) → assert stage expects a tool → read
-  `input` from `request.payload` → validate against tool `input_schema` → call
-  tool → validate `output_schema` → deposit `ExecutionResultMessage` back to
-  parent (or client for last step), or advance to the next stage.
-- Atomicity of the lease via lock on the queue item.
+- A `kind: tool` agent (Schema 1) declares `tool: <name>` (a Schema 3
+  `available_tools` key) and `parameters: {arg: dotted.path | literal}` — the
+  **terse call** (no `{from:}`/`{value:}`/`{default:}`; the default lives in the
+  code's signature and is never written).
+- Flow: take the incoming payload (`request.payload`, Schema 2) → resolve each
+  `parameters` value (dotted path against the chain-in-scope, or a literal) →
+  invoke the bound tool's callable with those kwargs → the tool's contract
+  (signature/parameters) is validated **at execution time** → build the new
+  payload → the base routes by position (Schema 2): advance to the next class
+  of the level, or deposit to `end_of_level_queue` at level close / flow end.
+- A mismatch (missing `parameters` source, signature rejection) is a **visible
+  execution error** (rule 9), never silent.
 
 ## Interface
-- Internal `ToolAgent(registry, queue, board, locks)` runner.
+- `ToolAgent(...)` runner over `AgentBase` (Schema 2 routing), bound to a
+  `kind: tool` spec and a Schema 3 tool resource.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-022), verbatim:
-- A fake registered tool executes through ToolAgent end-to-end, validating
-  schema on both edges, with results staged and token deposited.
+- A `kind: tool` agent executes against its `tool: <name>` in `available_tools`,
+  resolving `parameters` (dotted paths/literals) into the call, validating
+  input/output contracts on the edges, advancing the route by position and
+  depositing the new payload; failures yield a visible error in the task
+  result.
 
 ## Tests
-- Contract tests (red first): happy path, schema rejection both edges.
+- Contract tests (red first, once S1/S3 migration begins): parameters
+  resolution (dotted path + literal), happy path, contract/signature rejection
+  on both edges, route advance by position.
 
 ## Validation case
-- `transform` fake tool example end-to-end.
+- `transform` fake tool (declared via `available_tools`) end-to-end.
 
 ## Definition of done
 - All acceptance criteria met by running checks.

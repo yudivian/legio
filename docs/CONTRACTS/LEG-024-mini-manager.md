@@ -8,19 +8,23 @@
 
 ## Goal
 Implement the LEG-014 mini-manager: `submit`, `status`, root result delivery to
-the `results:{task_id}` board and client-owned reading via `status`.
+the task's final-result queue (`result_queue_key`) and client-owned reading via
+`status`.
 
 ## Scope
-- **In scope:** `submit`, `status`, task ownership tagging (`tasks` board),
-  root result on `results:{task_id}`.
+- **In scope:** `submit`, `status`, task ownership tagging (`tasks` registry),
+  root result on the final-result queue.
 - **Out of scope:** REST (LEG-025), auth (LEG-027).
 
 ## Contract & design
 - Per LEG-014. `status` enforces ownership (client only sees own tasks).
-- `submit` stages the task on the `tasks` board, deposits the root step into
-  the starting agent's queue and returns `task_id` (`<origin>:<uuid>`, LEG-016);
-  the root result is written by the terminating agent to `results:{task_id}`
-  (there is no per-task `client:{task_id}` queue).
+- `submit` stages the task on the `tasks` registry, seeds the level-1 root token
+  with `end_of_level_queue = result_queue_key(task_id)`, deposits the root step
+  into the starting agent's queue and returns `task_id` (LEG-016); the root
+  result is written by the terminating agent (at end-of-sequence **and**
+  `level == 1`) to that final-result queue (there is no `results:{task_id}`
+  board and no per-task `client:{task_id}` queue). `status` reads it back via a
+  non-destructive `peek`.
 
 ## Interface
 - `submit(client_id, agent, payload) -> task_id`; `status(task_id, client_id)`.

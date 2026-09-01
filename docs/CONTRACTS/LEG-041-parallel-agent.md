@@ -17,7 +17,7 @@ per (parallel, task) via the per-class bookkeeping
 ## Scope
 
 - **In scope:** concurrent deposit of child tasks across class inboxes, fani-in
-  join per (parallel, task), merge on all-complete.
+  join per (parallel, task), building the parallel's payload on all-complete.
 - **Out of scope:** parallel failure policy (LEG-063), pools (LEG-080).
 
 ## Contract & design
@@ -25,9 +25,9 @@ per (parallel, task) via the per-class bookkeeping
 - The parallel class has **two queues in the model**: its inbox and its
   **gathering queue** for fan-in returns (§12.3); collapsing them into one
   physical queue by message-type dispatch is an implementation choice.
-  The accumulated state travels in the messages (§12.1); the gathering
-  bookkeeping (`state:parallel:<class>`, locked, keyed per task) is the join
-  state — not a frame/board accumulator.
+  The payload travels in the messages (§12.1); the gathering bookkeeping
+  (`state:parallel:<class>`, locked, keyed per task) is the join state — not a
+  frame/board accumulator.
 - Fan-in identity: dedupe per **(parallel, child task id)**; each branch is one
   child task (LEG-052) — "two B-step tasks at different positions are distinct
   tasks". The fan-out **mints a distinct child task id (uuid) per branch**; the
@@ -36,8 +36,9 @@ per (parallel, task) via the per-class bookkeeping
   join waits (in the bookkeeping, not by polling) until all present.
 - Inline steps: tool → auto-named sub-agent class queue; linguistic → self-run
   by the gatherer (H1).
-- Merge flat-union with `output_as` (H3) into the token-carried state, via
-  `legio.flow.merge_carried`; fail policy hooks LEG-063.
+- The parallel **builds its payload** from the branch results (H3): each branch
+  outcome is projected under its `output_as` namespace via
+  `legio.flow.build_payload`; fail policy hooks LEG-063.
 - Nested composites need no token change beyond the branch depth: a composite
   is an ordinary class on the route — it is invoked like any capability agent
   through its inbox and returns along its `end_of_level_queue` (the parallel's

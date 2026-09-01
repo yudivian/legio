@@ -47,58 +47,72 @@ every contract issue: spec approved (journal) and its contract tests exist and
 are red for the yet-unimplemented surface.
 
 - **LEG-010** Patterns YAML schema (revised → S1): **one agent spec**
-  (`docs/AGENT_LIFECYCLE.md` §4.10), domain-free. A pattern is YAML data; it
-  declares **agents** only. `type` (atomic|composite) × `kind`
-  (tool|linguistic|sequence|parallel) with branch-exclusive fields,
-  structurally enforced; mandatory symmetric entry/output contracts
+  (`docs/AGENT_LIFECYCLE.md` §4.10/§4.11 Schema 1, LEG-010 REVISED), domain-free.
+  A pattern is YAML data; it declares **agents** only. `type` (atomic|composite)
+  × `kind` (tool|linguistic|sequence|parallel) with branch-exclusive fields,
+  structurally enforced; **mandatory symmetric entry/output contracts**
   (`input_as`/`input_type`/`input_schema`,
-  `output_as`/`output_type`/`output_schema`; text/json/binary); one reference
-  vocabulary `{from: <alias>.<path>}` | literal | omitted, resolved against the
-  whole preceding chain in scope (not only the immediate predecessor);
-  `parameters` (tool) and `bind` (usage site) wiring; interior↔contract
-  coherence (tool `input_schema` ⊆ registered signature; linguistic prompt
-  variables ↔ `input_schema`; linguistic `output_schema` enforced at runtime);
-  reuse of any definition by `pattern:` + `bind:` with encapsulation,
-  `output_as` uniqueness and cycle rejection; composite output via `emit:`
-  (sequence default = last child); parallel binds only from the composite's
-  `input_as`; `main` as root capability, not position. Inherits H1–H4
+  `output_as`/`output_type`/`output_schema`; text/json/binary) on **every**
+  agent; the **terse call vocabulary** `parameters: {arg: dotted.path |
+  literal}` for `kind: tool` (no `{from:}`/`{value:}`/`{default:}`, no `bind:`,
+  no `emit:` — those are rejected); chain-wide dotted-path resolution against
+  the whole preceding chain in scope; interior↔contract coherence (tool
+  `parameters` ↔ registered signature, checked at load; linguistic prompt
+  variables ↔ `input_schema`, all used/all declared; linguistic `output_schema`
+  enforced at runtime); reuse of any definition by `pattern:` and by repetition
+  by position, with encapsulation, `output_as` uniqueness and cycle rejection;
+  composite output is the composite's **implementation** (no `emit:`, no "last
+  child renamed"); parallel children bind only from the composite's `input_as`;
+  `main` as root capability, not position. Composition is **contract
+  compatibility**, not exact subset. Inherits H1–H4
   (`docs/VALIDATIONS/single-node-model.md`) as read semantics: inline stages,
-  flat-merge + `output_as` read namespacing, cumulative sequence.
+  flat read + `output_as` read namespacing, building the payload across steps.
   - **Accept**: a fixture translating two representative composite patterns
-    into S1 YAML loads and validates (a sequence reusing a tool and a
-    linguistic node with `emit:`; a parallel with `emit:`); a prompt whose
-    variables fill from the entry contract via `bind`; a `{var}` not declared
-    in `input_schema` is a load error; `{from: producer.path}` resolves against
-    any earlier producer in the chain (a 3-step chain proves it) and fails on
-    undeclared aliases/paths; nodes missing either contract are rejected; the
-    same agent bound in two composites with different sources validates in
-    both; a `bind` violating the used agent's entry contract is rejected;
+    into S1 YAML loads and validates (a sequence reusing a tool node and a
+    linguistic node; a parallel with two branches); a tool `parameters` dotted
+    path resolves against any earlier producer in the chain (a 3-step chain
+    proves it) and fails on undeclared aliases/paths; a `{var}` in a linguistic
+    prompt not declared in `input_schema` is a load error; nodes missing either
+    contract (`input_as`/`input_type`/`input_schema` or
+    `output_as`/`output_type`/`output_schema`) are rejected; the same agent
+    definition reused in two composites validates in both; a use that violates
+    the used agent's entry contract or adds an undeclared key is rejected;
     tool/linguistic coherence violations are detectable; duplicate `output_as`
-    and cycles are rejected.
+    in one scope and composition cycles are rejected.
 - **LEG-011** FlowToken & messages (v1): fields, semantics, `schema_version`,
   root handling, delivery.
   - **Accept**: serialization/deserialization round-trip preserves all fields;
   versioned, rejected on major mismatch; finality derived from position.
-- **LEG-012** Primitives interface (v1): Queue/Board/Lock API over beaver.
+- **LEG-012** Primitives interface (v1): Queue/Registry/Lock API over beaver.
   Superseded by the native-beaver substrate (LEG-048) — no `legio.primitives`
   wrapper; beaver primitives are addressed directly (`docs/ARCHITECTURE.md` §2).
   - **Accept**: signature conformance tests against the contract; lease
     TTL/renew observable by test.
-- **LEG-013** Tool registry interface (v1): registration, schemas, lifecycle.
-  - **Accept**: registering a fake tool, resolving by `tool_type`, and
-    validating input/output schemas are covered by contract tests.
-- **LEG-014** Mini-manager contract (v1): `submit`/`status` over boards, client
-  token ownership tagging (per LEG-017).
+- **LEG-013** Tool registry interface (revised → Schema 3): the tools
+  declaration `available_tools: {<name>: {implementation: <dotted.path>,
+  policy: {timeout, retries}}}`. Each tool is an independent, autosufficient
+  resource; it does **not** declare its output capacity (consuming agents
+  declare it via `output_as`/`output_schema`); its identifier is the explicit
+  `available_tools` key bridged by the agent's `tool: <name>` (Schema 1);
+  verification against the tool (its signature/parameters) is **execution-time**
+  (dynamically loaded), while load-time verification is the flow-against-itself.
+  - **Accept**: (S1/S3 fixtures) `available_tools` with
+    `implementation`+`policy` loads and validates; a broken/missing
+    `implementation` fails loudly at execution, never silently; a tool whose
+    signature rejects an agent's `parameters` call is a visible execution error.
+- **LEG-014** Mini-manager contract (Schema 2): `submit`/`status` delivering the
+  root result to the task's final-result queue, client token ownership tagging
+  (per LEG-017).
   - **Accept**: submit records `task_id` + `client_id`; status scopes to the
     requesting `client_id`.
 - **LEG-015** Federation contract (v1): symmetric catalog, work-item, outbox
   with versioned interfaces.
   - **Accept**: contract tests cover read-before-write, idempotency, and
     interface/schema mismatch returning 4xx.
-- **LEG-016** Naming & error conventions (v1): queue/board namespacing,
+- **LEG-016** Naming & error conventions (v1): queue/scope namespacing,
   namespace prefixes, error model.
   - **Accept**: a check (lint/unit) verifies every producer uses the
-    `legio:queue:`/`legio:board:` prefixes and error types conform.
+    `legio:queue:` prefix / `db.dict` scope and error types conform.
 - **LEG-017** Security contract (v1): two levels — shared federation token +
   per-system client tokens with individual revocation; default all starting
   agents unless restricted; ownership of task results.
@@ -108,7 +122,7 @@ are red for the yet-unimplemented surface.
 
 ### R-2 — Walking skeleton
 
-- **LEG-020** Primitives over beaver (Queue/Board/Lock + lease semantics).
+- **LEG-020** Primitives over beaver (Queue/Registry/Lock + lease semantics).
   Superseded by the native-beaver substrate (LEG-048) — the wrapper
   implementation was deleted; its behaviors (lease TTL + renew, `next_run_at`
 priority, namespacing) are now exercised in the AgentBase/Runtime suites
@@ -116,28 +130,33 @@ priority, namespacing) are now exercised in the AgentBase/Runtime suites
   - **Accept**: priority ordering, `next_run_at` retry scheduling, lease TTL +
     renew, and reclaim-after-expiry each have a passing integration test
     against a temp beaver file.
-- **LEG-021** Patterns loader (minimal): YAML → `PatternSpec` (pydantic).
-  - **Accept**: minimal atomic+tool and sequence patterns load; invalid YAML
-    raises a structured loader error (fail-fast).
-- **LEG-022** ToolAgent + tool registry execution path.
-  - **Accept**: fake tool executes through registry; result written to board
-    under `output_as`; schema-validated; failure yields a visible error in the
-    task result.
+- **LEG-021** Patterns loader (minimal): S1 YAML → typed agent models.
+  - **Accept**: minimal atomic (tool/linguistic) and sequence/parallel composites
+    in the S1 shape load; invalid YAML raises a structured loader error
+    (fail-fast); the branch-exclusive and mandatory-contract validation matrix
+    (per LEG-010/Schema 1) is enforced at load.
+- **LEG-022** ToolAgent + tool registry execution path (Schema 1/2/3).
+  - **Accept**: a `kind: tool` agent executes against its `tool: <name>` in
+    `available_tools`, resolving `parameters` (dotted paths/literals) into the
+    call, validating input/output contracts on the edges, advancing the route by
+    position (Schema 2) and depositing the new payload; failures yield a
+    visible error in the task result.
 - **LEG-023** AgentBase `run()`: polling loop + lease + heartbeat.
   - **Accept**: one replicated agent consumes a message within lease; a dead
     replica's message becomes reclaimable before lease expiry; no infinite busy loop.
-- **LEG-024** Mini-manager: `submit`/`status` backed by boards + client token
-  ownership (LEG-014/017).
+- **LEG-024** Mini-manager: `submit`/`status` over the TaskRegistry + client
+  token ownership (LEG-014/017).
   - **Accept**: submitting with token A creates a task owned by A; status with
     a different token (or none) is rejected/empty.
 - **LEG-025** REST surface over the mini-manager: `submit`/`status` with
   ownership-aware status; an agent polls its queue and runs to completion.
   - **Accept**: submitting via the API creates a task owned by the client; a
     foreign client's status request is denied; the agent loop processes the
-    deposited message to completion with observable state changes in boards.
+    deposited message to completion with observable state changes in registries.
 - **LEG-026** E2E example: `transform` with a fake tool (domain-free).
   - **Accept**: submitting `transform` through the API yields its output
-    in `results:{task_id}`; example is a green test (does not bitrot).
+    in the task's final-result queue (`result:<task_id>`, read back via
+    `status`); example is a green test (does not bitrot).
 - **LEG-027** Auth middleware (v1): single middleware enforcing the
   LEG-017 endpoint→token map for the API surface.
   - **Accept**: middleware tests match the LEG-017 §9 contract list for
@@ -173,8 +192,9 @@ priority, namespacing) are now exercised in the AgentBase/Runtime suites
 
 ### R-5 — Token
 
-- **LEG-050** Root token authoring & root delivery (`client:{task_id}`).
-  - **Accept**: root task result lands in `results:{task_id}` exactly once and
+- **LEG-050** Root token authoring & root delivery (submit-seeded
+  `end_of_level_queue` = the task's final-result queue).
+  - **Accept**: root task result lands in the final-result queue exactly once and
     is readable via status; no re-delivery after ack.
 - **LEG-051** Uniform parent continuation in every composite frontier.
   - **Accept**: sequence *and* parallel return to the exact parent that
@@ -184,8 +204,9 @@ priority, namespacing) are now exercised in the AgentBase/Runtime suites
   namespacing fixes.
   - **Accept**: same-named parallel branches at different positions do not
     merge; regression tests cover the earlier agent-name bug.
-- **LEG-053** `ultimate_return` delivery semantics (internal vs client).
-  - **Accept**: head tasks deliver internally, root tasks to the client;
+- **LEG-053** Final-result delivery semantics (branch-close vs flow-end).
+  - **Accept**: the flow-end at `level == 1` delivers the final result to the
+    submit-seeded final-result queue, distinct from intermediate branch closes;
     covered by contract tests.
 
 ### R-6 — Resilience

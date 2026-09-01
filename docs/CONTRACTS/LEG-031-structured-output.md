@@ -18,14 +18,15 @@ resolve against a single validated record dot-opened for the prompt.
   these shapes).
 
 ## Contract & design
-- Every atomic output is one validated pydantic record (validated at the
-  edges per LEG-013/022 or lingo response).
+- Every atomic output is one validated pydantic record (validated at the edges
+  per LEG-022 or lingo response), transported in the message's single `payload`
+  container (Schema 2).
 - Dot-opened record is templated into prompts; system vars (`{current_date}`,
   etc.) always available.
 - Undefined path → clear template error (never silent).
 
 ## Interface
-- `resolve_template(template, board_entry) -> str`; output record contract.
+- `resolve_template(template, payload) -> str`; output record contract.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-031), verbatim:

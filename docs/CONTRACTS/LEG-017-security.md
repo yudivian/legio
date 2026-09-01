@@ -82,7 +82,7 @@ a consumer that needs users/RBAC implements it at its own layer.
   wide access anyway).
 - No confidentiality or integrity on plain-HTTP; TLS is mandatory in
   production.
-- Internal state (queues, boards, beaver) is never served over the network.
+- Internal state (queues, registries, beaver) is never served over the network.
 
 ## 9. Contract tests
 

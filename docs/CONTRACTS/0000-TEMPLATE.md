@@ -19,7 +19,7 @@ One or two sentences: what this issue delivers and why.
 
 ## Interface
 - The public surface this issue defines (config shape, CLI, endpoints,
-  function signatures, board/queue names) — only what is externally observable.
+  function signatures, registry/queue names) — only what is externally observable.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-XXX), verbatim:

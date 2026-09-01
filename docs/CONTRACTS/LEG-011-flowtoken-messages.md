@@ -32,7 +32,7 @@ including `schema_version`, the per-level token fields and the flow-end rule.
   | `launcher_class` | class of the agent that started the flow; constant, informational, not control. |
   | `task_id` | str, the process's public id. |
   | `message_type` | enum `execution_request` \| `execution_result`. |
-  | `payload` | the carried data (single container for both roles). |
+  | `payload` | the data (single container for both roles). |
 
 - **Advance (request):** `current_index < len(level_route)-1` → deliver `payload`
   to class `level_route[current_index+1]` (by position, no `next_queue` field).
