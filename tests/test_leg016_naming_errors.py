@@ -1,13 +1,14 @@
-"""Red contract tests for LEG-016 — Naming & errors (v1).
+"""Contract tests for LEG-016 — Naming & errors (v1).
 
 These tests define the public contract for identifier validation and the typed
 error taxonomy. The modules imported here (``legio.naming``, ``legio.errors``)
-do NOT exist yet. This file is intentionally red.
+now exist and are implemented; the tests verify conformance.
 """
 
 from __future__ import annotations
 
 import pytest
+
 from legio.errors import (
     InvalidNameError,
     LegioError,

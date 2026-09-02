@@ -1,66 +1,129 @@
-"""`legio.tools` — the tool registry (LEG-013) and tool contract.
+"""`legio.tools` — the Schema 3 tool registry (LEG-013).
 
-A tool is an opaque, substitutable execution resource injected by the consumer.
-It exposes only its pydantic ``input_schema`` / ``output_schema`` and never knows
-about agents or queues. The registry maps ``tool_type`` → tool per node, loaded
-at agent startup.
+Tools are declared in `available_tools: {<name>: {implementation, policy}}`.
+Each tool is a callable loaded from its dotted path at execution time.
+The tool's signature (via `inspect`) is the contract; the tool itself does
+not declare pydantic schemas — the consuming agent declares `output_as`/
+`output_schema` (Schema 1).
 """
 
 from __future__ import annotations
 
+import inspect
 import logging
-from typing import Protocol, runtime_checkable
-
-from pydantic import BaseModel
+from collections.abc import Mapping
+from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
 class Tool(Protocol):
-    """A substitutable execution resource exposing only its schemas."""
+    """A substitutable execution resource — just a callable.
 
-    @property
-    def input_schema(self) -> type[BaseModel]: ...
+    The tool's signature (via `inspect`) is its contract. The tool does
+    not expose pydantic schemas; the consuming agent validates I/O.
+    """
 
-    @property
-    def output_schema(self) -> type[BaseModel]: ...
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
-class ToolRegistry:
-    """Maps ``tool_type`` → tool and its schemas, per node."""
+class AvailableToolsRegistry:
+    """Registry for Schema 3 `available_tools` declaration."""
 
     def __init__(self) -> None:
-        self._tools: dict[str, Tool] = {}
-        self._input_schemas: dict[str, type[BaseModel]] = {}
-        self._output_schemas: dict[str, type[BaseModel]] = {}
+        self._declarations: dict[str, dict[str, Any]] = {}
 
-    def register(
+    def declare(
         self,
-        tool_type: str,
-        tool: Tool,
-        input_schema: type[BaseModel],
-        output_schema: type[BaseModel],
+        name: str,
+        *,
+        implementation: str,
+        policy: Mapping[str, Any] | None = None,
     ) -> None:
-        """Register a tool against its ``tool_type``."""
-        self._tools[tool_type] = tool
-        self._input_schemas[tool_type] = input_schema
-        self._output_schemas[tool_type] = output_schema
-        logger.info("tool registered type=%s", tool_type)
+        """Declare a tool in `available_tools`."""
+        if name in self._declarations:
+            logger.warning("tool redeclared name=%s", name)
+        self._declarations[name] = {
+            "implementation": implementation,
+            "policy": dict(policy) if policy else {},
+        }
+        logger.info("tool declared name=%s implementation=%s", name, implementation)
 
-    def resolve(self, tool_type: str) -> Tool:
-        """Return the registered tool instance for ``tool_type``."""
+    def get_declaration(self, name: str) -> dict[str, Any]:
+        """Return the declaration for `name` (raises KeyError if missing)."""
         try:
-            return self._tools[tool_type]
+            return self._declarations[name]
         except KeyError:
-            logger.warning("tool not found type=%s", tool_type)
-            raise KeyError(f"no tool registered for tool_type {tool_type!r}") from None
+            logger.warning("tool not found name=%s", name)
+            raise KeyError(f"no tool declared for name {name!r}") from None
 
-    def schemas(self, tool_type: str) -> tuple[type[BaseModel], type[BaseModel]]:
-        """Return ``(input_schema, output_schema)`` for ``tool_type``."""
-        if tool_type not in self._tools:
-            raise KeyError(f"no tool registered for tool_type {tool_type!r}")
-        return self._input_schemas[tool_type], self._output_schemas[tool_type]
+    def load_tool(self, name: str) -> Tool:
+        """Load and return the tool callable from its dotted path."""
+        decl = self.get_declaration(name)
+        dotted_path = decl["implementation"]
+        try:
+            module_path, attr = dotted_path.rsplit(".", 1)
+            module = __import__(module_path, fromlist=[attr])
+            tool = getattr(module, attr)
+        except (ImportError, AttributeError, ValueError) as exc:
+            logger.error("failed to load tool name=%s path=%s error=%s", name, dotted_path, exc)
+            raise RuntimeError(f"cannot load tool {name!r} from {dotted_path!r}") from exc
+        if not callable(tool):
+            raise TypeError(f"tool {name!r} resolved to non-callable: {tool!r}")
+        return tool
+
+    def all_declarations(self) -> Mapping[str, dict[str, Any]]:
+        """Return all declared tools (read-only view)."""
+        return self._declarations
 
 
-__all__ = ["Tool", "ToolRegistry"]
+def resolve_parameters(
+    parameters: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve terse `parameters` against the incoming `payload`.
+
+    Each value in `parameters` is either:
+    - a dotted path string starting with `{` and ending with `}` (e.g., `{payload.text}`)
+      → resolved against `payload` via dotted path lookup
+    - a literal value (int, str, bool, etc.) → used as-is
+
+    Raises `KeyError` if a dotted path is not found on the payload.
+    """
+    resolved: dict[str, Any] = {}
+    for arg, value in parameters.items():
+        if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
+            path = value[1:-1]
+            current: Any = payload
+            for part in path.split("."):
+                if isinstance(current, Mapping):
+                    current = current.get(part)
+                else:
+                    raise KeyError(f"parameter path {path!r} is undefined on the payload")
+            if current is None:
+                raise KeyError(f"parameter path {path!r} resolved to None on the payload")
+            resolved[arg] = current
+        else:
+            resolved[arg] = value
+    return resolved
+
+
+def validate_callable_signature(tool: Tool, kwargs: Mapping[str, Any]) -> None:
+    """Validate `kwargs` against the tool's signature at execution time.
+
+    Raises `TypeError` if the signature rejects the call.
+    """
+    sig = inspect.signature(tool)
+    try:
+        sig.bind(**kwargs)
+    except TypeError as exc:
+        raise TypeError(f"tool signature mismatch: {exc}") from exc
+
+
+__all__ = [
+    "AvailableToolsRegistry",
+    "Tool",
+    "resolve_parameters",
+    "validate_callable_signature",
+]

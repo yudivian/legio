@@ -13,12 +13,11 @@ import typing
 import httpx
 import pytest
 from beaver import AsyncBeaverDB
-from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.security import ClientTokenStore
-from legio.tools import ToolRegistry
+from legio.tools import AvailableToolsRegistry
 
 if typing.TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -150,48 +149,57 @@ async def test_tokens_never_appear_in_responses(ac: httpx.AsyncClient) -> None:
         assert "tok-b" not in value
 
 
-class TransformInput(BaseModel):
-    text: str
+def fake_transform(text: str) -> dict:
+    """Domain-free fake tool: plain callable, signature is its contract."""
+    return {"upper": str(text).upper()}
 
 
-class TransformOutput(BaseModel):
-    upper: str
+def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "transform",
+        implementation="tests.test_tools.fake_transform",
+        policy={"timeout": 30, "retries": 0},
+    )
+    return ToolAgent(
+        agent_id="transform",
+        db=db,
+        available_tools=registry,
+        tool_name="transform",
+        parameters={"text": "{text}"},
+    )
 
 
-class FakeTransformTool:
-    @property
-    def input_schema(self) -> type[BaseModel]:
-        return TransformInput
-
-    @property
-    def output_schema(self) -> type[BaseModel]:
-        return TransformOutput
-
-    def __call__(self, **kwargs: object) -> dict:
-        return {"upper": str(kwargs["text"]).upper()}
+def build_upper_agent(db: AsyncBeaverDB) -> ToolAgent:
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "upper",
+        implementation="tests.test_tools.fake_upper",
+        policy={"timeout": 30, "retries": 0},
+    )
+    return ToolAgent(
+        agent_id="upper",
+        db=db,
+        available_tools=registry,
+        tool_name="upper",
+        parameters={"text": "{text}"},
+    )
 
 
 @pytest.mark.asyncio
 async def test_leg026_example_runs_behind_auth(
     ac: httpx.AsyncClient, beaver_db: AsyncBeaverDB
 ) -> None:
-    registry = ToolRegistry()
-    registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
+    agent = build_upper_agent(beaver_db)
 
     created = await ac.post(
         "/submit",
-        json={"agent": "transform", "payload": {"text": "hi"}},
+        json={"agent": "upper", "payload": {"text": "hi"}},
         headers=bearer("tok-a"),
     )
     assert created.status_code == 200, created.text
     task_id = created.json()["task_id"]
 
-    agent = ToolAgent(
-        agent_id="transform",
-        db=beaver_db,
-        registry=registry,
-        tool_type="transform",
-    )
     await agent.run()
 
     owner = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))

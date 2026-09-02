@@ -21,7 +21,7 @@ from legio.naming import queue_key, result_queue_key
 
 @pytest.mark.asyncio
 async def test_submit_returns_task_id_and_tags_owner(beaver_db: AsyncBeaverDB) -> None:
-    task_id = await submit("client-a", "flow_alpha", {"raw": 1})
+    task_id = await submit("client-a", ("flow_alpha",), {"raw": 1})
     assert isinstance(task_id, str)
     assert task_id
 
@@ -35,7 +35,7 @@ async def test_submit_returns_task_id_and_tags_owner(beaver_db: AsyncBeaverDB) -
 async def test_root_result_lands_in_final_result_queue_readable_via_status(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    task_id = await submit("client-a", "flow_alpha", {"raw": 1})
+    task_id = await submit("client-a", ("flow_alpha",), {"raw": 1})
 
     result = ExecutionResultMessage(
         task_id=task_id,
@@ -56,7 +56,7 @@ async def test_root_result_lands_in_final_result_queue_readable_via_status(
 
 @pytest.mark.asyncio
 async def test_status_is_scoped_to_the_owning_client(beaver_db: AsyncBeaverDB) -> None:
-    task_id = await submit("client-a", "flow_alpha", {"raw": 1})
+    task_id = await submit("client-a", ("flow_alpha",), {"raw": 1})
 
     with pytest.raises(PermissionError):
         await status(task_id, "client-b")
@@ -69,7 +69,7 @@ async def test_status_is_scoped_to_the_owning_client(beaver_db: AsyncBeaverDB) -
 async def test_submitted_task_holds_root_token_with_result_queue_target(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    task_id = await submit("client-a", "flow_alpha", {"raw": 1})
+    task_id = await submit("client-a", ("flow_alpha",), {"raw": 1})
 
     entry = await status(task_id, "client-a")
     token = entry.token
@@ -84,7 +84,7 @@ async def test_submitted_task_holds_root_token_with_result_queue_target(
 async def test_submitted_task_stays_pending_until_root_result(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    task_id = await submit("client-a", "flow_alpha", {"raw": 1})
+    task_id = await submit("client-a", ("flow_alpha",), {"raw": 1})
 
     entry = await status(task_id, "client-a")
     assert entry.state is TaskState.PENDING

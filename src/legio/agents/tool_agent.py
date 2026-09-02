@@ -1,41 +1,42 @@
 """`legio.agents.tool_agent` — the ToolAgent runner (LEG-022, over LEG-023).
 
-The ToolAgent executes a tool step of a route. It is an ``AgentBase``
-(LEG-023): the base provides the uniform lease/dispatch/hook/ack ``run()``
-loop, while ``_handle`` implements the tool-specific job — take the incoming
-payload from the request's single ``payload`` container (Schema 2), validate it
-against the tool's ``input_schema``, invoke the registered tool as a callable,
-validate the result against the tool's ``output_schema``, and build the new
-payload with ``build_payload`` (AGENT_LIFECYCLE §12.1: the state travels in the
-messages — nothing staged out-of-message). The base routes by position.
+The ToolAgent executes a `kind: tool` agent step. It receives the incoming
+payload from the request's single `payload` container (Schema 2), resolves the
+terse `parameters` (`{arg: dotted.path | literal}`) against it, loads the bound
+`tool: <name>` from `available_tools` (Schema 3), invokes it with the resolved
+kwargs, validates the call against the tool's signature at execution time,
+and builds the new payload with `build_payload` (AGENT_LIFECYCLE §12.1: the
+state travels in the messages — nothing staged out-of-message). The base routes
+by position.
 
-Schema failures on either edge are never silent: an error result is
+Schema/signature failures on either edge are never silent: an error result is
 deposited instead (see AGENTS.md rule 9).
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import Any, cast
+from collections.abc import Mapping
+from typing import Any
 
 from legio.agents.base import AgentBase
 from legio.flow import ExecutionRequestMessage, build_payload
-from legio.tools import Tool, ToolRegistry
+from legio.tools import AvailableToolsRegistry, resolve_parameters, validate_callable_signature
 
 logger = logging.getLogger(__name__)
 
 
 class ToolAgent(AgentBase):
-    """Runs a single tool step of a route against a registered tool."""
+    """Runs a single tool step of a route against a Schema 3 tool."""
 
     def __init__(
         self,
         *,
         agent_id: str,
         db: Any,
-        registry: ToolRegistry,
-        tool_type: str,
+        available_tools: AvailableToolsRegistry,
+        tool_name: str,
+        parameters: Mapping[str, Any],
         lease_ttl: float = 60.0,
     ) -> None:
         super().__init__(
@@ -43,40 +44,44 @@ class ToolAgent(AgentBase):
             db=db,
             lease_ttl=lease_ttl,
         )
-        self._registry = registry
-        self._tool_type = tool_type
-        self._tool: Tool = registry.resolve(tool_type)
-        self._input_schema, self._output_schema = registry.schemas(tool_type)
+        self._available_tools = available_tools
+        self._tool_name = tool_name
+        self._parameters = dict(parameters)
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any]:
         error: str | None = None
-        validated_output = None
         try:
-            raw_input = request.payload
-            validated_input = self._input_schema.model_validate(raw_input)
-            logger.debug("tool input ok agent=%s task=%s", self._agent_id, request.task_id)
-            callable_tool = cast(Callable[..., object], self._tool)
-            raw_output = callable_tool(**validated_input.model_dump())
-            validated_output = self._output_schema.model_validate(raw_output)
-        except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
-            logger.warning(
-                "tool schema failure agent=%s task=%s error=%s",
+            # Resolve terse parameters against the incoming payload
+            resolved_kwargs = resolve_parameters(self._parameters, request.payload)
+            # Load the tool from available_tools (dotted path)
+            tool = self._available_tools.load_tool(self._tool_name)
+            # Validate against tool's signature at execution time
+            validate_callable_signature(tool, resolved_kwargs)
+            # Invoke
+            raw_output = tool(**resolved_kwargs)
+            logger.debug(
+                "tool executed ok agent=%s task=%s tool=%s",
                 self._agent_id,
                 request.task_id,
+                self._tool_name,
+            )
+            # Build new payload (output_as handled by caller's spec / build_payload)
+            return build_payload(request.payload, raw_output)
+        except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
+            logger.warning(
+                "tool execution failure agent=%s task=%s tool=%s error=%s",
+                self._agent_id,
+                request.task_id,
+                self._tool_name,
                 f"{type(exc).__name__}: {exc}",
             )
             error = f"{type(exc).__name__}: {exc}"
 
-        if error is not None or validated_output is None:
-            return {"error": error or "tool produced no output"}
+        if error is not None:
+            return {"error": error}
 
-        output = validated_output.model_dump()
-        logger.debug(
-            "tool output ok agent=%s task=%s",
-            self._agent_id,
-            request.task_id,
-        )
-        return build_payload(request.payload, output)
+        # Should not reach here
+        return {"error": "tool produced no output"}
 
 
 __all__ = ["ToolAgent"]

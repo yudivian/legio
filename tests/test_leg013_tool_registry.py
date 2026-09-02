@@ -1,107 +1,128 @@
-"""Red contract tests for LEG-013 — Tool registry interface v1.
+"""Contract tests for LEG-013 — Schema 3 tool registry (available_tools).
 
 These tests pin the public contract for the node's tool registry: tools are
-opaque, substitutable resources exposing only ``input_schema`` /
-``output_schema`` (pydantic), registered against a ``tool_type`` at startup
-and resolved per node.
-
-The production code imported here (``legio.tools``) does NOT exist yet. This
-file is intentionally red: it must fail because the production code is not
-implemented. Conformance is asserted via ``isinstance``, so ``Tool`` must be a
-``@typing.runtime_checkable`` protocol.
+declared in `available_tools: {<name>: {implementation, policy}}`. Each tool is
+a callable loaded from its dotted path at execution time. The tool's signature
+(via `inspect`) is its contract; the tool does not declare pydantic schemas.
 """
 
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel, ValidationError
 
-from legio.tools import Tool, ToolRegistry
-
-
-class TransformInput(BaseModel):
-    text: str
-    factor: int = 2
-
-
-class TransformOutput(BaseModel):
-    transformed: str
+from legio.tools import (
+    AvailableToolsRegistry,
+    Tool,
+    resolve_parameters,
+    validate_callable_signature,
+)
 
 
-class TransformTool:
-    """Domain-free fake tool exposing only its pydantic schemas."""
-
-    @property
-    def input_schema(self) -> type[BaseModel]:
-        return TransformInput
-
-    @property
-    def output_schema(self) -> type[BaseModel]:
-        return TransformOutput
+def fake_transform(text: str, factor: int = 2) -> dict:
+    """Domain-free fake tool: plain callable, signature is its contract."""
+    return {"transformed": str(text).upper() * factor}
 
 
-def test_tool_is_opaque_and_domain_free() -> None:
-    tool = TransformTool()
-    assert tool.input_schema is TransformInput
-    assert tool.output_schema is TransformOutput
-    for attribute in ("queue", "agent_id", "push", "lease", "ack"):
-        assert not hasattr(tool, attribute)
+def test_tool_is_just_a_callable() -> None:
+    """A tool is a plain callable; it does not expose pydantic schemas."""
+    assert callable(fake_transform)
+    assert not hasattr(fake_transform, "input_schema")
+    assert not hasattr(fake_transform, "output_schema")
 
 
 def test_fake_tool_conforms_to_tool_protocol() -> None:
-    assert isinstance(TransformTool(), Tool)
+    assert isinstance(fake_transform, Tool)
 
 
-def test_resolve_returns_registered_tool_instance() -> None:
-    registry = ToolRegistry()
-    tool = TransformTool()
-    registry.register("transform", tool, TransformInput, TransformOutput)
+def test_declare_and_load_tool() -> None:
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "transform",
+        implementation="tests.test_tools.fake_transform",
+        policy={"timeout": 30, "retries": 0},
+    )
 
-    resolved = registry.resolve("transform")
-    assert resolved is tool
-
-
-def test_schemas_return_registered_input_and_output_schemas() -> None:
-    registry = ToolRegistry()
-    registry.register("transform", TransformTool(), TransformInput, TransformOutput)
-
-    input_schema, output_schema = registry.schemas("transform")
-    assert input_schema is TransformInput
-    assert output_schema is TransformOutput
+    tool = registry.load_tool("transform")
+    assert callable(tool)
+    # The tool is the function from test_tools.py
+    from tests.test_tools import fake_transform as fake_transform_fn
+    # tool is loaded as a callable; assert same code object
+    assert tool.__code__ is fake_transform_fn.__code__  # type: ignore[attr-defined]
 
 
-def test_payloads_validate_against_registered_schemas() -> None:
-    registry = ToolRegistry()
-    registry.register("transform", TransformTool(), TransformInput, TransformOutput)
+def test_declare_all_declarations() -> None:
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "transform",
+        implementation="tests.test_tools.fake_transform",
+        policy={"timeout": 30, "retries": 0},
+    )
+    registry.declare(
+        "other",
+        implementation="tests.test_tools.fake_flip",
+        policy={"timeout": 10, "retries": 1},
+    )
 
-    input_schema, output_schema = registry.schemas("transform")
-
-    input_payload = input_schema(text="hello", factor=3)
-    assert input_payload.text == "hello"  # type: ignore[attr-defined]
-    assert input_payload.factor == 3  # type: ignore[attr-defined]
-
-    output_payload = output_schema(transformed="HELLO")
-    assert output_payload.transformed == "HELLO"  # type: ignore[attr-defined]
-
-
-def test_schema_validation_rejects_invalid_payloads() -> None:
-    registry = ToolRegistry()
-    registry.register("transform", TransformTool(), TransformInput, TransformOutput)
-
-    input_schema, output_schema = registry.schemas("transform")
-    with pytest.raises(ValidationError):
-        input_schema(text=123, factor="three")
-    with pytest.raises(ValidationError):
-        output_schema(transformed=123)
+    decls = registry.all_declarations()
+    assert "transform" in decls
+    assert "other" in decls
+    assert decls["transform"]["implementation"] == "tests.test_tools.fake_transform"
+    assert decls["transform"]["policy"] == {"timeout": 30, "retries": 0}
 
 
-def test_resolve_unknown_tool_type_raises() -> None:
-    registry = ToolRegistry()
+def test_load_unknown_tool_raises() -> None:
+    registry = AvailableToolsRegistry()
     with pytest.raises(KeyError):
-        registry.resolve("no_such_tool")
+        registry.load_tool("no_such_tool")
 
 
-def test_schemas_unknown_tool_type_raises() -> None:
-    registry = ToolRegistry()
+def test_get_declaration_unknown_tool_raises() -> None:
+    registry = AvailableToolsRegistry()
     with pytest.raises(KeyError):
-        registry.schemas("no_such_tool")
+        registry.get_declaration("no_such_tool")
+
+
+def test_resolve_parameters_with_dotted_paths() -> None:
+    payload = {"text": "hello", "factor": 2, "nested": {"value": 42}}
+    parameters = {"text": "{text}", "factor": "{factor}", "nested_val": "{nested.value}"}
+    resolved = resolve_parameters(parameters, payload)
+    assert resolved["text"] == "hello"
+    assert resolved["factor"] == 2
+    assert resolved["nested_val"] == 42
+
+
+def test_resolve_parameters_with_literals() -> None:
+    payload = {"text": "hello"}
+    parameters = {"text": "{text}", "factor": 5, "flag": True}
+    resolved = resolve_parameters(parameters, payload)
+    assert resolved["text"] == "hello"
+    assert resolved["factor"] == 5
+    assert resolved["flag"] is True
+
+
+def test_resolve_parameters_missing_path_raises() -> None:
+    payload = {"text": "hello"}
+    parameters = {"text": "{missing}"}
+    with pytest.raises(KeyError):
+        resolve_parameters(parameters, payload)
+
+
+def test_resolve_parameters_none_value_raises() -> None:
+    payload = {"text": None}
+    parameters = {"text": "{text}"}
+    with pytest.raises(KeyError):
+        resolve_parameters(parameters, payload)
+
+
+def test_validate_callable_signature_ok() -> None:
+    validate_callable_signature(fake_transform, {"text": "hello", "factor": 2})
+
+
+def test_validate_callable_signature_missing_required_raises() -> None:
+    with pytest.raises(TypeError):
+        validate_callable_signature(fake_transform, {"factor": 2})
+
+
+def test_validate_callable_signature_unexpected_kwarg_raises() -> None:
+    with pytest.raises(TypeError):
+        validate_callable_signature(fake_transform, {"text": "hello", "unknown": 123})

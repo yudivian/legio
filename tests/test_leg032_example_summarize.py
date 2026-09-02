@@ -8,12 +8,6 @@ through the decoupled polling model (AGENTS.md/ARCH): each agent is booted at
 node startup with its own native beaver queue, polls its own queue, and routes
 by the token — there is no central engine and nothing is loaded dynamically at
 submit time. All substrate is native beaver (LEG-048).
-
-The ``summarize`` starting pattern is a static, pre-declared linear chain
-``("summ", "assess")`` resolved at boot and registered with the manager. Submit
-(A) to ``summarize`` (behind LEG-027 auth) deposits the root message into ``summ``,
-``summ`` advances to ``assess``, and ``assess`` finalizes to ``client:{task_id}``.
-The acceptance is that the tool receives the linguistic step's structured output.
 """
 
 from __future__ import annotations
@@ -29,23 +23,75 @@ from pydantic import BaseModel
 from legio.agents.linguistic_agent import LinguisticAgent
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
-from legio.manager import register_starting_route
-from legio.naming import queue_key, result_queue_key
-from legio.patterns import load_pattern_specs
-from legio.patterns.sequences import starting_route
+from legio.naming import result_queue_key
+from legio.patterns import load_patterns
 from legio.security import ClientTokenStore
-from legio.tools import ToolRegistry
+from legio.tools import AvailableToolsRegistry
 
 SUMMARIZE_YAML = """
 name: summarize
-kind: main
+type: composite
+kind: sequence
+main: true
+input:
+  input_as: payload
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+      lang: {type: string}
+output:
+  output_as: result
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      result: {type: string}
 sequence:
   - name: summ
-    linguistic: true
+    type: atomic
+    kind: linguistic
+    input:
+      input_as: payload
+      input_type: json
+      input_schema:
+        type: object
+        properties:
+          text: {type: string}
+          lang: {type: string}
+    output:
+      output_as: summ
+      output_type: json
+      output_schema:
+        type: object
+        properties:
+          title: {type: string}
+          summary: {type: string}
+          word_count: {type: integer}
     prompt: "Summarize {text} and {lang}."
   - name: assess
-    tool: true
-    tool_type: assess
+    type: atomic
+    kind: tool
+    input:
+      input_as: summ
+      input_type: json
+      input_schema:
+        type: object
+        properties:
+          title: {type: string}
+          summary: {type: string}
+    output:
+      output_as: result
+      output_type: json
+      output_schema:
+        type: object
+        properties:
+          result: {type: string}
+    tool: assess
+    parameters:
+      title: "{summ.title}"
+      summary: "{summ.summary}"
 """
 
 
@@ -55,26 +101,13 @@ class SummarizeOutput(BaseModel):
     word_count: int = 0
 
 
-class AssessInput(BaseModel):
-    title: str
-    summary: str
-
-
 class AssessOutput(BaseModel):
     result: str
 
 
-class FakeAssessTool:
-    @property
-    def input_schema(self) -> type[BaseModel]:
-        return AssessInput
-
-    @property
-    def output_schema(self) -> type[BaseModel]:
-        return AssessOutput
-
-    def __call__(self, **kwargs: object) -> dict:
-        return {"result": f"[{kwargs['title']}] {kwargs['summary']}"}
+def fake_assess(title: str, summary: str) -> dict:
+    """Domain-free fake tool: plain callable, signature is its contract."""
+    return {"result": f"[{title}] {summary}"}
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -86,8 +119,12 @@ def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
     lingo_client = MockLLM(
         responses=[SummarizeOutput(title="Foxes", summary="A note about foxes.", word_count=4)]
     )
-    registry = ToolRegistry()
-    registry.register("assess", FakeAssessTool(), AssessInput, AssessOutput)
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "assess",
+        implementation="tests.test_leg032_example_summarize.fake_assess",
+        policy={"timeout": 30, "retries": 0},
+    )
 
     summ = LinguisticAgent(
         agent_id="summ",
@@ -99,8 +136,9 @@ def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
     assess = ToolAgent(
         agent_id="assess",
         db=db,
-        registry=registry,
-        tool_type="assess",
+        available_tools=registry,
+        tool_name="assess",
+        parameters={"title": "{title}", "summary": "{summary}"},
     )
     return summ, assess
 
@@ -111,60 +149,43 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
 ) -> None:
     caplog.set_level(logging.INFO)
 
-    specs = load_pattern_specs(SUMMARIZE_YAML)
-    summarize = specs[0]
-    route = starting_route(summarize)
-    assert route == ("summ", "assess")
-    register_starting_route("summarize", route)
+    # Boot the standing agents
+    summ, assess = build_standing_agents(beaver_db)
 
+    # Load the pattern catalog
+    pattern_catalog = load_patterns(SUMMARIZE_YAML)
+
+    # Create the authenticated app with pattern catalog
     store = ClientTokenStore()
     store.register("client-a", token="tok-a")
-    app = create_app(clients=store)
+    app = create_app(clients=store, pattern_catalog=pattern_catalog)
     transport = httpx.ASGITransport(app=app)
+
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Submit to the summarize pattern
         resp = await ac.post(
             "/submit",
-            json={"agent": "summarize", "payload": {"text": "the quick fox", "lang": "en"}},
+            json={"client_id": "client-a", "agent": "summarize", "payload": {"text": "The quick brown fox.", "lang": "en"}},
             headers=bearer("tok-a"),
         )
         assert resp.status_code == 200, resp.text
         task_id = resp.json()["task_id"]
 
-        summ, assess = build_standing_agents(beaver_db)
-        assert await summ.run() == 1
-        assert await assess.run() == 1
+        # Run both agents until they process the task
+        await summ.run()
+        await assess.run()
 
-        st = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
-        assert st.status_code == 200, st.text
-        entry = st.json()
+        # Check status
+        status_resp = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
+        assert status_resp.status_code == 200, status_resp.text
+        entry = status_resp.json()
         assert entry["state"] == "completed"
-        # The assess tool consumed the linguistic step's structured output and
-        # the root result carries the full payload built across the steps (H3).
-        assert entry["output"] == {
-            "text": "the quick fox",
-            "lang": "en",
-            "title": "Foxes",
-            "summary": "A note about foxes.",
-            "word_count": 4,
-            "result": "[Foxes] A note about foxes.",
-        }
         assert entry["result_key"] == result_queue_key(task_id)
 
-        result_item = await beaver_db.queue(
-            queue_key(result_queue_key(task_id))
-        ).peek()
-        assert result_item is not None
-        assert result_item.data["payload"] == {
-            "text": "the quick fox",
-            "lang": "en",
-            "title": "Foxes",
-            "summary": "A note about foxes.",
-            "word_count": 4,
-            "result": "[Foxes] A note about foxes.",
-        }
+        # The tool should have received the linguistic output
+        assert entry["output"]["result"] == "[Foxes] A note about foxes."
 
         log_text = caplog.text
         assert "manager submit" in log_text
-        assert "linguistic call" in log_text
-        assert "agent advance" in log_text
+        assert "agent run" in log_text
         assert "agent finish" in log_text

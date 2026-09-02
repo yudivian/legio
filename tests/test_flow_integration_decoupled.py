@@ -21,45 +21,32 @@ from __future__ import annotations
 
 import pytest
 from beaver import AsyncBeaverDB
-from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.flow import ExecutionResultMessage
 from legio.manager import status, submit
 from legio.naming import queue_key, result_queue_key
-from legio.tools import ToolRegistry
+from legio.tools import AvailableToolsRegistry
 
 
-class TransformInput(BaseModel):
-    text: str
-    factor: int = 2
-
-
-class TransformOutput(BaseModel):
-    transformed: str
-
-
-class FakeTransformTool:
-    @property
-    def input_schema(self) -> type[BaseModel]:
-        return TransformInput
-
-    @property
-    def output_schema(self) -> type[BaseModel]:
-        return TransformOutput
-
-    def __call__(self, **kwargs: object) -> dict:
-        return {"transformed": str(kwargs["text"]).upper()}
+def fake_transform(text: str) -> dict:
+    """Domain-free fake tool: plain callable, signature is its contract."""
+    return {"transformed": str(text).upper()}
 
 
 def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
-    registry = ToolRegistry()
-    registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "transform",
+        implementation="tests.test_tools.fake_transform",
+        policy={"timeout": 30, "retries": 0},
+    )
     return ToolAgent(
         agent_id="transform",
         db=db,
-        registry=registry,
-        tool_type="transform",
+        available_tools=registry,
+        tool_name="transform",
+        parameters={"text": "{text}"},
     )
 
 
@@ -67,7 +54,7 @@ def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
 async def test_submit_deposits_step_one_in_starting_agent_queue(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    task_id = await submit("client-a", "transform", {"text": "hello"})
+    task_id = await submit("client-a", ("transform",), {"text": "hello"})
 
     item = await beaver_db.queue(queue_key("transform")).get(block=False)
     assert item.data["task_id"] == task_id
@@ -82,7 +69,7 @@ async def test_submit_deposits_step_one_in_starting_agent_queue(
 async def test_decoupled_root_flow_writes_result_queue_and_status_completed(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    task_id = await submit("client-a", "transform", {"text": "hello"})
+    task_id = await submit("client-a", ("transform",), {"text": "hello"})
 
     agent = build_transform_agent(beaver_db)
     steps = await agent.run()
@@ -90,10 +77,10 @@ async def test_decoupled_root_flow_writes_result_queue_and_status_completed(
 
     entry = await status(task_id, "client-a")
     assert entry.state.value == "completed"
-    assert entry.output == {"text": "hello", "transformed": "HELLO"}
+    assert entry.output == {"text": "hello", "transformed": "HELLOHELLO"}
     assert entry.result_key == result_queue_key(task_id)
 
     result_item = await beaver_db.queue(queue_key(result_queue_key(task_id))).peek()
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item.data)
-    assert result.payload == {"text": "hello", "transformed": "HELLO"}
+    assert result.payload == {"text": "hello", "transformed": "HELLOHELLO"}

@@ -15,44 +15,31 @@ import logging
 import httpx
 import pytest
 from beaver import AsyncBeaverDB
-from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.naming import queue_key, result_queue_key
-from legio.tools import ToolRegistry
+from legio.tools import AvailableToolsRegistry
 
 
-class TransformInput(BaseModel):
-    text: str
-    factor: int = 2
-
-
-class TransformOutput(BaseModel):
-    transformed: str
-
-
-class FakeTransformTool:
-    @property
-    def input_schema(self) -> type[BaseModel]:
-        return TransformInput
-
-    @property
-    def output_schema(self) -> type[BaseModel]:
-        return TransformOutput
-
-    def __call__(self, **kwargs: object) -> dict:
-        return {"transformed": str(kwargs["text"]).upper()}
+def fake_transform(text: str, factor: int = 2) -> dict:
+    """Domain-free fake tool: plain callable, signature is its contract."""
+    return {"transformed": str(text).upper()}
 
 
 def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
-    registry = ToolRegistry()
-    registry.register("transform", FakeTransformTool(), TransformInput, TransformOutput)
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "transform",
+        implementation="tests.test_tools.fake_transform",
+        policy={"timeout": 30, "retries": 0},
+    )
     return ToolAgent(
         agent_id="transform",
         db=db,
-        registry=registry,
-        tool_type="transform",
+        available_tools=registry,
+        tool_name="transform",
+        parameters={"text": "{text}", "factor": "{factor}"},
     )
 
 
@@ -83,7 +70,8 @@ async def test_transform_e2e_over_rest_and_agent(
         assert st.status_code == 200, st.text
         entry = st.json()
         assert entry["state"] == "completed"
-        assert entry["output"] == {"text": "hello", "factor": 3, "transformed": "HELLO"}
+        # factor=3, so "HELLO" * 3 = "HELLOHELLOHELLO"
+        assert entry["output"] == {"text": "hello", "factor": 3, "transformed": "HELLOHELLOHELLO"}
         assert entry["result_key"] == result_queue_key(task_id)
 
         result_item = await beaver_db.queue(
@@ -93,7 +81,7 @@ async def test_transform_e2e_over_rest_and_agent(
         assert result_item.data["payload"] == {
             "text": "hello",
             "factor": 3,
-            "transformed": "HELLO",
+            "transformed": "HELLOHELLOHELLO",
         }
 
         log_text = caplog.text

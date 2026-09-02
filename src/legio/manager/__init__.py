@@ -34,8 +34,6 @@ _TASKS_SCOPE = "tasks"
 _DEFAULT_DB_PATH = "legio.db"
 _DEFAULT_NODE_ID = "local"
 
-_ROUTES: dict[str, tuple[str, ...]] = {}
-
 _db: AsyncBeaverDB | None = None
 _db_path: str = _DEFAULT_DB_PATH
 _node_id: str = _DEFAULT_NODE_ID
@@ -126,30 +124,6 @@ def _new_task_id() -> str:
     return f"{_node_id}:{uuid.uuid4()}"
 
 
-def register_starting_route(starting_agent: str, route_names: tuple[str, ...]) -> None:
-    """Register a static route for a starting pattern.
-
-    INTERIM (R-3) mechanism, to be removed in R-4 (LEG-040/LEG-041): the
-    manager currently resolves the DAG at submit via ``_resolve_route``, which
-    contradicts the decoupled design (ARCH §3/§6 — the *starting agent*
-    concretizes the token; the manager never knows the DAG). Keep until the
-    starting sequence/parallel agents exist. Do not extend this API.
-    """
-    if not route_names:
-        raise ValueError("a starting route must name at least one agent")
-    _ROUTES[starting_agent] = tuple(route_names)
-    logger.info("manager starting route %s=%s", starting_agent, ",".join(route_names))
-
-
-def _resolve_route(starting_agent: str) -> tuple[str, ...]:
-    """Return the route for ``starting_agent`` (default: the agent itself).
-
-    INTERIM (R-3) — see ``register_starting_route``; routes are to be
-    concretized by the starting agent, not resolved by the manager.
-    """
-    return _ROUTES.get(starting_agent, (starting_agent,))
-
-
 def _current() -> AsyncBeaverDB:
     if _db is None:
         raise RuntimeError(
@@ -158,19 +132,21 @@ def _current() -> AsyncBeaverDB:
     return _db
 
 
-async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -> str:
+async def submit(client_id: str, route: tuple[str, ...], payload: dict[str, Any]) -> str:
     """Submit a task; returns its ``task_id``.
 
-    The synthetic parent (ARCH §6) resolves the starting pattern's static route
-    (default: the single agent), creates the task's final-result queue, stages
-    the inputs on the ``tasks`` dictionary and deposits the first
+    The caller provides the starting pattern's level-1 route (derived from the
+    pattern catalog via ``starting_route``), creates the task's final-result
+    queue, stages the inputs on the ``tasks`` dictionary and deposits the first
     ``ExecutionRequestMessage`` (the root step, Schema 2 token with
     ``end_of_level_queue`` = final-result queue) into the first agent's queue.
     From there the flow is fully decoupled: agents poll their own queues and
-    route by the token.
+    route by the token. The manager never resolves the DAG — the route is
+    provided by the caller (derived from the pattern catalog).
     """
+    if not route:
+        raise ValueError("route must contain at least one agent")
     task_id = _new_task_id()
-    route = _resolve_route(starting_agent)
     first_agent = route[0]
     result_queue = result_queue_key(task_id)
     token = FlowToken(
@@ -204,10 +180,9 @@ async def submit(client_id: str, starting_agent: str, payload: dict[str, Any]) -
     )
     await agent_queue(first_agent).put(request.model_dump(mode="json"), priority=0.0)
     logger.info(
-        "manager submit task=%s owner=%s starting_agent=%s route=%s result_queue=%s",
+        "manager submit task=%s owner=%s route=%s result_queue=%s",
         task_id,
         client_id,
-        starting_agent,
         ",".join(route),
         result_queue,
     )
@@ -263,7 +238,6 @@ __all__ = [
     "close_manager",
     "connect_manager",
     "db",
-    "register_starting_route",
     "reset_manager",
     "status",
     "submit",

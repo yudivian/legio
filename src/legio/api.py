@@ -12,6 +12,10 @@ client token is required (401 otherwise), a restricted token may only hit its
 listed starting agents (403 otherwise), and ``status`` is readable only by the
 token that owns the task. Without a store the app is open (``client_id`` comes
 from the request) for embedded/unauthenticated contexts.
+
+An optional ``pattern_catalog`` can be provided to derive the starting route
+from the pattern catalog (LEG-021). If not provided, the agent name is used as
+a single-agent route.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from pydantic import BaseModel, Field
 from legio import manager
 from legio.flow import FlowToken
 from legio.manager import TaskEntry, TaskState
+from legio.patterns import Catalog, starting_route
 from legio.security import ClientTokenStore
 
 logger = logging.getLogger(__name__)
@@ -88,12 +93,33 @@ def _forbidden() -> JSONResponse:
     return JSONResponse(status_code=403, content={"code": "forbidden"})
 
 
-def create_app(clients: ClientTokenStore | None = None) -> FastAPI:
+def _resolve_route(agent_name: str, catalog: Catalog | None) -> tuple[str, ...]:
+    """Resolve the starting route for an agent.
+
+    If a pattern catalog is provided, look up the agent as a starting pattern
+    and derive the route via ``starting_route``. Otherwise, return the agent
+    name as a single-agent route.
+    """
+    if catalog is not None and agent_name in catalog.specs:
+        spec = catalog.specs[agent_name]
+        if spec.main:
+            return starting_route(spec)
+    return (agent_name,)
+
+
+def create_app(
+    clients: ClientTokenStore | None = None,
+    pattern_catalog: Catalog | None = None,
+) -> FastAPI:
     """Build the FastAPI application exposing the mini-manager over REST.
 
     When ``clients`` is given, ``submit``/``status`` require a valid client
     token (LEG-027); otherwise the app is open and ``client_id`` comes from the
     request body/query.
+
+    When ``pattern_catalog`` is given, the starting route for the agent is
+    derived from the pattern catalog (the agent must be marked ``main: true``).
+    If not provided, the agent name is used as a single-agent route.
     """
     app = FastAPI(title="legio", version="0.1.0")
 
@@ -115,8 +141,9 @@ def create_app(clients: ClientTokenStore | None = None) -> FastAPI:
         else:
             client_id = body.client_id or "default"
 
-        task_id = await manager.submit(client_id, body.agent, body.payload)
-        logger.info("api submit task=%s client=%s agent=%s", task_id, client_id, body.agent)
+        route = _resolve_route(body.agent, pattern_catalog)
+        task_id = await manager.submit(client_id, route, body.payload)
+        logger.info("api submit task=%s client=%s agent=%s route=%s", task_id, client_id, body.agent, ",".join(route))
         return SubmitResponse(task_id=task_id)
 
     @app.get("/status/{task_id}", response_model=StatusResponse)

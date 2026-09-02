@@ -14,33 +14,32 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 from beaver import AsyncBeaverDB
-from pydantic import BaseModel
 
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.manager import status, submit
-from legio.tools import ToolRegistry
+from legio.tools import AvailableToolsRegistry
 
 
-class FlipInput(BaseModel):
-    text: str
+def fake_flip(text: str) -> dict:
+    """Domain-free fake tool: plain callable, signature is its contract."""
+    return {"flipped": str(text)[::-1]}
 
 
-class FlipOutput(BaseModel):
-    flipped: str
-
-
-class FakeFlipTool:
-    @property
-    def input_schema(self) -> type[BaseModel]:
-        return FlipInput
-
-    @property
-    def output_schema(self) -> type[BaseModel]:
-        return FlipOutput
-
-    def __call__(self, **kwargs: object) -> dict:
-        return {"flipped": str(kwargs["text"])[::-1]}
+def build_flip_agent(db: AsyncBeaverDB) -> ToolAgent:
+    registry = AvailableToolsRegistry()
+    registry.declare(
+        "flip",
+        implementation="tests.test_tools.fake_flip",
+        policy={"timeout": 30, "retries": 0},
+    )
+    return ToolAgent(
+        agent_id="flip",
+        db=db,
+        available_tools=registry,
+        tool_name="flip",
+        parameters={"text": "{text}"},
+    )
 
 
 @pytest.fixture
@@ -109,16 +108,9 @@ async def test_submit_missing_fields_is_rejected(
 async def test_agent_loop_deposits_message_to_completion(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    task_id = await submit("client-a", "flip", {"text": "abc"})
+    task_id = await submit("client-a", ("flip",), {"text": "abc"})
 
-    registry = ToolRegistry()
-    registry.register("flip", FakeFlipTool(), FlipInput, FlipOutput)
-    agent = ToolAgent(
-        agent_id="flip",
-        db=beaver_db,
-        registry=registry,
-        tool_type="flip",
-    )
+    agent = build_flip_agent(beaver_db)
 
     processed = await agent.run()
     assert processed == 1
