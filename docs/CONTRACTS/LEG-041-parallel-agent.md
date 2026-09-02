@@ -1,6 +1,6 @@
 # LEG-041 — Parallel agent
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (maintainer, 2026-09-01 — R-4 stream directed)
 - **Rasante:** R-4
 - **GitHub issue:** #24
 - **Source:** `docs/PLAN.md` (LEG-041)

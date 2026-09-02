@@ -1,6 +1,6 @@
 # LEG-040 — Sequence agent
 
-- **Status:** DRAFT (awaiting maintainer approval)
+- **Status:** APPROVED (maintainer, 2026-09-01 — R-4 stream directed)
 - **Rasante:** R-4
 - **GitHub issue:** #23
 - **Source:** `docs/PLAN.md` (LEG-040)
