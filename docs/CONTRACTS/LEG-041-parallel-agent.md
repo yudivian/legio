@@ -28,12 +28,17 @@ per (parallel, task) via the per-class bookkeeping
   The payload travels in the messages (§12.1); the gathering bookkeeping
   (`state:parallel:<class>`, locked, keyed per task) is the join state — not an
   out-of-message accumulator.
-- Fan-in identity: dedupe per **(parallel, child task id)**; each branch is one
-  child task (LEG-052) — "two B-step tasks at different positions are distinct
-  tasks". The fan-out **mints a distinct child task id (uuid) per branch**; the
-  child id *is* the slot identity, and the parallel's bookkeeping maps
-  child id → (parent task, slot). The join gathers exactly the step's children;
-  join waits (in the bookkeeping, not by polling) until all present.
+- Fan-in identity: dedupe per **(parallel, task, branch slot)**. The **task id
+  is the task's identity and never changes anywhere in the flow** (AGENTS.md /
+  Schema 2) — not even across a fan-out: every branch is deposited and every
+  branch result returns with the SAME `task_id` as its parallel parent. The
+  parallel's join bookkeeping is keyed **directly on that `task_id`** (O(1)
+  `fetch`, no child→parent lookup, no scanning); the result's `level_route[0]`
+  names the branch slot, and the join counts slots until all of the parallel's
+  branches for the task are present. Each branch is one child task (LEG-052);
+  result identity per (parallel, task, slot) — a branch's distinctness comes
+  from its path/slot, not from a synthetic id. Join waits (in the bookkeeping,
+  not by polling) until all present.
 - Inline steps: tool → auto-named sub-agent class queue; linguistic → self-run
   by the gatherer (H1).
 - The parallel **builds its payload** from the branch results (H3): each branch
