@@ -9,22 +9,39 @@
 
 ## Goal
 
-Implement the sequence composite: a **forward-only** chain over the class
-inbox — steps run strictly in order, each waits for the previous one before it
-starts; nothing returns to the sequence; the last processor deposits into the
-next class's queue (AGENT_LIFECYCLE §12.3). No gathering queue.
+Implement the **sequence** composite — one of the **two** composite agent
+classes that `type: composite` forks into: `SequenceAgent` (`kind: sequence`,
+this issue) and `ParallelAgent` (`kind: parallel`, LEG-041). A sequence is a
+**forward-only** chain over the class inbox: each step deposits the next into
+the following class's queue and the last processor closes the level
+(AGENT_LIFECYCLE §12.3). No gathering queue.
+
+**Ordering is by chain deposit, never by locking.** No agent waits on another
+and nothing is blocked: a step runs as soon as its item arrives in its queue
+(its only lease is the per-task execution lease, which protects the item from
+double execution, not the ordering). Step 2 simply cannot start until step 1's
+result lands in step 2's queue — the order is encoded in the token's
+`level_route`/`current_index`, not enforced by any lock. This is the polling,
+decoupled philosophy (AGENTS.md rule 8).
 
 ## Scope
 
 - **In scope:** sequential deposit of steps as routes over the next classes'
   inboxes, parent continuation (LEG-051), building the payload across steps.
-- **Out of scope:** parallel mode (LEG-041), fan-in identity/path (LEG-052).
+  Covers the `kind: sequence` composite class only.
+- **Out of scope:** the parallel composite class `ParallelAgent` (LEG-041),
+  fan-in identity/path (LEG-052).
 
 ## Contract & design
 
+- There are **two** composite agent classes (Schemas 1/4.11), one per
+  composite `kind`: `SequenceAgent` for `kind: sequence` and `ParallelAgent`
+  for `kind: parallel`. This issue specifies and implements
+  `SequenceAgent` only; the parallel class is LEG-041.
 - Sequence = forward deposit of each step as an `ExecutionRequestMessage` to
   the next class's inbox; each step's start follows the previous one's result
-  (order encoded in the token's `level_route`/`current_index`).
+  (order encoded in the token's `level_route`/`current_index`; pure chain
+  deposit, no locking or waiting).
 - Advance is the single Schema 2 rule (AGENT_LIFECYCLE §12.4): while
   `current_index < len(level_route)-1`, deposit to `level_route[current_index+1]`
   (by position); at end-of-level (`current_index == len-1`) deliver to
@@ -44,7 +61,9 @@ next class's queue (AGENT_LIFECYCLE §12.3). No gathering queue.
 ## Interface
 
 - Composite agent class `SequenceAgent` implementing the forward chain over
-  the inbox.
+  the inbox for the **sequence** composite `kind`. The parallel composite
+  class is `ParallelAgent` (LEG-041) — a distinct class, not a variant of
+  `SequenceAgent`.
 
 ## Acceptance criteria
 
