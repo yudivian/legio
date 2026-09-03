@@ -2,34 +2,33 @@
 
 Every agent — atomic (tool/linguistic), composite and root — is a uniform
 ``run()`` unit. ``AgentBase`` provides that loop once: it pops a work item from
-the agent's native beaver queue (``db.queue``), takes a native beaver lock as
-the task lease (``db.lock``, LEG-048), dispatches it to the step's job (a
-subclass ``_handle``), applies the ``retry_guard`` / ``monitor`` hooks, and
-routes the outcome by position (Schema 2): advance to the next class of this
-level as an ``ExecutionRequestMessage``, or — at the end of the level — deposit
-an ``ExecutionResultMessage`` to the level's ``end_of_level_queue`` (the
-submit's final-result queue at level 1, AGENT_LIFECYCLE §4.11). The route and
-the destination travel inside the message itself: routing is always derived
-from ``level_route``/``current_index``/``end_of_level_queue``, never from
+the agent's native beaver queue (``db.queue``), dispatches it to the step's job
+(a subclass ``_handle``), applies the ``monitor`` hook, and routes the outcome
+by position (Schema 2): advance to the next class of this level as an
+``ExecutionRequestMessage``, or — at the end of the level — deposit an
+``ExecutionResultMessage`` to the level's ``end_of_level_queue`` (the submit's
+final-result queue at level 1, AGENT_LIFECYCLE §12.1). The route and the
+destination travel inside the message itself: routing is always derived from
+``level_route``/``current_index``/``end_of_level_queue``, never from
 caller-owned knowledge, and the step's produced payload travels in the single
 ``payload`` container (Schema 2).
 
 The actual steps (linguistic, tool, composite) plug in via ``_handle``, which
-returns the new payload to route; ``ToolAgent`` (LEG-022) is one such
-subclass. Failures are never silent (AGENTS.md rule 9): a raised step error is
-surfaced as an ``error`` result, and ``retry_guard`` decides whether to re-run
-the step instead.
+returns the new payload to route; ``ToolAgent`` (LEG-022) is one such subclass.
+Failures are never silent (AGENTS.md rule 9): a raised step error is surfaced
+as an ``error`` result. There is no lease, no retry and no re-queue in the
+dispatch: the agent is a stateless poller (AGENTS.md rule 8) — nothing sleeps,
+nothing is locked, and the item is simply consumed once.
 
 No invented substrate layer exists (LEG-048): the agent speaks beaver natively,
-exactly as castor's Manager holds a ``db`` and calls ``db.dict``/``db.queue``/
-``db.lock`` directly.
+exactly as castor's Manager holds a ``db`` and calls ``db.dict``/``db.queue``
+directly.
 """
 
 from __future__ import annotations
 
 import logging
-import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from beaver import AsyncBeaverDB
@@ -39,7 +38,6 @@ from legio.naming import queue_key
 
 logger = logging.getLogger(__name__)
 
-RetryGuard = Callable[[str, str, str, int], Awaitable[bool]]
 Monitor = Callable[[str, str, str], Awaitable[None]]
 
 _EVENT_START = "start"
@@ -56,21 +54,14 @@ class AgentBase:
         *,
         agent_id: str,
         db: AsyncBeaverDB,
-        lease_ttl: float = 60.0,
     ) -> None:
         self._agent_id = agent_id
         self._db = db
-        self._lease_ttl = lease_ttl
         self._queue = db.queue(queue_key(agent_id))
-        self._retry_guard: RetryGuard | None = None
         self._monitor: Monitor | None = None
-        self._attempts: dict[str, int] = {}
 
-    def set_hooks(
-        self, *, retry_guard: RetryGuard | None = None, monitor: Monitor | None = None
-    ) -> None:
-        """Register the optional ``retry_guard`` and ``monitor`` hooks."""
-        self._retry_guard = retry_guard
+    def set_hooks(self, *, monitor: Monitor | None = None) -> None:
+        """Register the optional ``monitor`` observability hook."""
         self._monitor = monitor
 
     @property
@@ -92,28 +83,20 @@ class AgentBase:
             steps += 1
         return steps
 
-    async def process_next(self, *, lease_ttl: float | None = None) -> bool:
-        """Process at most one due work item; return whether one was handled.
+    async def process_next(self) -> bool:
+        """Consume at most one work item; return whether one was handled.
 
-        The native beaver queue ``get(block=False)`` pops destructively (LEG-048);
-        a native beaver lock keyed on the item is the task lease — it marks the
-        item in-flight and is renewed by ``_heartbeat``, released by ``ack``, and
-        would be reclaimed by the reaper on expiry (at-least-once, R-6).
+        The native beaver queue ``get(block=False)`` pops destructively: there
+        is no lease, no ``next_run_at`` gate and no re-queue — the item is
+        consumed once and routed. Idle returns ``False`` (rule 8, polling only).
         """
-        ttl = lease_ttl or self._lease_ttl
-        item = await self._take_due()
-        if item is None:
+        try:
+            qitem = await self._queue.get(block=False)
+        except IndexError:
             logger.debug("agent idle agent=%s", self._agent_id)
             return False
 
-        item_id = self._item_id(item)
-        lease = self._db.lock(f"{queue_key(self._agent_id)}:{item_id}", lock_ttl=ttl)
-        held = await lease.acquire(timeout=0.0, lock_ttl=ttl, block=True)
-        if not held:
-            logger.debug("agent lease contention agent=%s item=%s", self._agent_id, item_id)
-            await self._queue.put(dict(item), priority=0.0)
-            return False
-
+        item = qitem.data
         try:
             request = ExecutionRequestMessage.model_validate(dict(item))
             logger.info(
@@ -123,8 +106,6 @@ class AgentBase:
                 request.level,
                 request.current_index,
             )
-            self._attempts[request.task_id] = self._attempts.get(request.task_id, 0) + 1
-            await self._heartbeat(lease)
             await self._emit(_EVENT_START, request)
             await self._run_guarded(request)
         except Exception:
@@ -134,34 +115,8 @@ class AgentBase:
                 item.get("task_id", "?"),
             )
             raise
-        finally:
-            await lease.release()
         logger.debug("agent done agent=%s", self._agent_id)
         return True
-
-    async def _take_due(self) -> Mapping[str, Any] | None:
-        """Pop the next due item from the native queue, rotating not-due items."""
-        seen: set[str] = set()
-        while True:
-            try:
-                qitem = await self._queue.get(block=False)
-            except IndexError:
-                return None
-            item = qitem.data
-            if self._is_due(item):
-                return item
-            item_id = self._item_id(item)
-            if item_id in seen:
-                await self._queue.put(dict(item), priority=0.0)
-                return None
-            seen.add(item_id)
-            await self._queue.put(dict(item), priority=0.0)
-
-    def _is_due(self, item: Mapping[str, Any]) -> bool:
-        return float(item.get("next_run_at", 0.0)) <= time.time()
-
-    def _item_id(self, item: Mapping[str, Any]) -> str:
-        return str(item.get("task_id") or item.get("id") or id(item))
 
     async def _run_guarded(self, request: ExecutionRequestMessage) -> None:
         """Run the step job and route its outcome, or route a raised failure."""
@@ -176,49 +131,17 @@ class AgentBase:
                 error,
             )
             await self._emit(_EVENT_STEP_ERROR, request)
-            attempt = self._attempts.get(request.task_id, 1)
-            should_retry = await self._should_retry(request, error, attempt)
-            if should_retry:
-                logger.info(
-                    "agent retry agent=%s task=%s attempt=%s",
-                    self._agent_id,
-                    request.task_id,
-                    attempt,
-                )
-                await self._retry(request)
-                return
             await self._route_outcome(request, {"error": error})
             return
         if new_payload is not None:
             await self._route_outcome(request, new_payload)
             await self._emit(_EVENT_STEP_DONE, request)
 
-    async def _should_retry(
-        self, request: ExecutionRequestMessage, error: str, attempt: int
-    ) -> bool:
-        if self._retry_guard is None:
-            return False
-        return bool(await self._retry_guard(self._agent_id, request.task_id, error, attempt))
-
-    async def _retry(self, request: ExecutionRequestMessage) -> None:
-        """Re-enqueue the request so the step runs again after ack."""
-        await self._queue.put(request.model_dump(mode="json"), priority=0.0)
-
     async def _emit(self, event: str, request: ExecutionRequestMessage | None) -> None:
         if self._monitor is None:
             return
         task_id = request.task_id if request is not None else "?"
         await self._monitor(self._agent_id, task_id, event)
-
-    async def _heartbeat(self, lease: Any) -> None:
-        """Renew the item's lease so a live replica keeps it out of reaper.
-
-        Polling-only (AGENTS.md rule 8): there is no sleep; the renewal happens
-        on each item we pick up, keeping the lease alive for the duration of the
-        step. Continuous in-work heartbeating is R-6 (resilience).
-        """
-        await lease.renew(self._lease_ttl)
-        logger.debug("agent heartbeat agent=%s", self._agent_id)
 
     async def _route_outcome(
         self, request: ExecutionRequestMessage, payload: dict[str, Any]

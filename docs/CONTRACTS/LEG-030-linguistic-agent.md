@@ -16,7 +16,7 @@ against its mandatory `output_schema`, advancing the route by position (Schema
 ## Scope
 - **In scope:** prompt templating (dotted paths + system vars), lingo call,
   output handling against the S1 mandatory contracts.
-- **Out of scope:** `output_schema` compilation (LEG-072), retries (R-6).
+- **Out of scope:** `output_schema` compilation (LEG-072).
 
 ## Contract & design
 - A `kind: linguistic` agent (Schema 1) declares mandatory

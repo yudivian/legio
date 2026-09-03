@@ -37,12 +37,10 @@ class ToolAgent(AgentBase):
         available_tools: AvailableToolsRegistry,
         tool_name: str,
         parameters: Mapping[str, Any],
-        lease_ttl: float = 60.0,
     ) -> None:
         super().__init__(
             agent_id=agent_id,
             db=db,
-            lease_ttl=lease_ttl,
         )
         self._available_tools = available_tools
         self._tool_name = tool_name

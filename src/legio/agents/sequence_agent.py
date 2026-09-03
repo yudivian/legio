@@ -41,9 +41,8 @@ class SequenceAgent(AgentBase):
         agent_id: str,
         db: Any,
         sequence_route: Sequence[str],
-        lease_ttl: float = 60.0,
     ) -> None:
-        super().__init__(agent_id=agent_id, db=db, lease_ttl=lease_ttl)
+        super().__init__(agent_id=agent_id, db=db)
         self._sequence_route = tuple(sequence_route)
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any] | None:

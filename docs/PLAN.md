@@ -14,8 +14,8 @@ vertical slices).
 ## Rasantes (vertical slices)
 
 `R-0` Foundation → `R-1` Contracts v1 → `R-2` Walking skeleton → `R-3` Atomics
-→ `R-4` Composites → `R-5` Token → `R-6` Resilience → `R-7` Patterns engine →
-`R-8` Runtime → `R-9` Federation → `R-10` Hardening & release.
+→ `R-4` Composites → `R-5` Token → `R-7` Patterns engine → `R-8` Runtime →
+`R-9` Federation → `R-10` Hardening & release.
 
 Per-rasante definition of done: written contract + contract tests + implementation
 + validation case green (an external consumer repo or the in-repo fictitious
@@ -86,8 +86,8 @@ are red for the yet-unimplemented surface.
 - **LEG-012** Primitives interface (v1): Queue/Registry/Lock API over beaver.
   Superseded by the native-beaver substrate (LEG-048) — no `legio.primitives`
   wrapper; beaver primitives are addressed directly (`docs/ARCHITECTURE.md` §2).
-  - **Accept**: signature conformance tests against the contract; lease
-    TTL/renew observable by test.
+  - **Accept**: signature conformance tests against the contract;
+    queue/lock semantics observable by test.
 - **LEG-013** Tool registry interface (revised → Schema 3): the tools
   declaration `available_tools: {<name>: {implementation: <dotted.path>,
   policy: {timeout, retries}}}`. Each tool is an independent, autosufficient
@@ -122,13 +122,11 @@ are red for the yet-unimplemented surface.
 
 ### R-2 — Walking skeleton
 
-- **LEG-020** Primitives over beaver (Queue/Registry/Lock + lease semantics).
+- **LEG-020** Primitives over beaver (Queue/Registry/Lock wrapper).
   Superseded by the native-beaver substrate (LEG-048) — the wrapper
-  implementation was deleted; its behaviors (lease TTL + renew, `next_run_at`
-priority, namespacing) are now exercised in the AgentBase/Runtime suites
-   directly against beaver.
-  - **Accept**: priority ordering, `next_run_at` retry scheduling, lease TTL +
-    renew, and reclaim-after-expiry each have a passing integration test
+  implementation was deleted; the agent speaks beaver natively and directly.
+  - **Accept**: the AgentBase runner consumes from a native beaver queue (no
+    wrapper), exercising priority ordering and namespace isolation directly
     against a temp beaver file.
 - **LEG-021** Patterns loader (minimal): S1 YAML → typed agent models.
   - **Accept**: minimal atomic (tool/linguistic) and sequence/parallel composites
@@ -141,9 +139,9 @@ priority, namespacing) are now exercised in the AgentBase/Runtime suites
     call, validating input/output contracts on the edges, advancing the route by
     position (Schema 2) and depositing the new payload; failures yield a
     visible error in the task result.
-- **LEG-023** AgentBase `run()`: polling loop + lease + heartbeat.
-  - **Accept**: one replicated agent consumes a message within lease; a dead
-    replica's message becomes reclaimable before lease expiry; no infinite busy loop.
+- **LEG-023** AgentBase `run()`: polling-only dispatch loop (Schema 2).
+  - **Accept**: dispatch is stateless and carries no lease — a message is popped
+    once and routed; no infinite busy loop.
 - **LEG-024** Mini-manager: `submit`/`status` over the TaskRegistry + client
   token ownership (LEG-014/017).
   - **Accept**: submitting with token A creates a task owned by A; status with
@@ -180,7 +178,7 @@ priority, namespacing) are now exercised in the AgentBase/Runtime suites
     advances exactly once per stage; final stage delivers to parent/client.
 - **LEG-041** ParallelAgent: inbox + gathering queue, fan-out/fan-in.
   - **Accept**: single-node parallel with 3 children completes with all results;
-    a missing child result blocks (tolerant policy is R-6).
+    a missing child result is surfaced visibly (never silent).
 - **LEG-042** Fan-in by source (dedupe per (parallel, task)) + `output_as`
   merging (H3 semantics).
   - **Accept**: two occurrences of the same child pattern in one DAG are
@@ -209,25 +207,6 @@ priority, namespacing) are now exercised in the AgentBase/Runtime suites
     submit-seeded final-result queue, distinct from intermediate branch closes;
     covered by contract tests.
 
-### R-6 — Resilience
-
-- **LEG-060** Leases with heartbeat + reaper re-queue.
-  - **Accept**: simulated crash mid-task → lease expires → reaper re-queues →
-    task completes once, exactly.
-- **LEG-061** Retry as fields: `next_run_at`, `attempts`, queue priority.
-  - **Accept**: failed task with `next_run_at` in the future is not executed
-    before it; `attempts` increments on each try.
-- **LEG-062** DLQ after max attempts.
-  - **Accept**: after `attempts` ≥ max, item lands in DLQ and is visible as a
-    failed task result; never silently dropped.
-- **LEG-063** Parallel partial/fail policy configurable per pattern.
-  - **Accept**: pattern with `fail_fast` stops fan-out and reports; with
-    tolerant policy a failed child yields a partial success result with
-    per-child error entries.
-- **LEG-064** Resilience scenario tests (lease expiry, crash mid-task,
-  provider outage, priority).
-  - **Accept**: the four scenarios are explicit green tests in CI.
-
 ### R-7 — Patterns engine
 
 - **LEG-070** Cascade invalidation on invalid dependencies.
@@ -250,15 +229,15 @@ priority, namespacing) are now exercised in the AgentBase/Runtime suites
   `docs/AGENT_LIFECYCLE.md`. This R-8 section is where it is implemented; LEG-080
   (pools) realizes "multiple instances consume the same class queue".
 - **LEG-080** Pools (`pool_size` agents per class).
-  - **Accept**: n agents on the same queue process n items concurrently; each
-    item leased exactly once; single-agent behavior unchanged.
+  - **Accept**: n agents on the same queue process n items concurrently;
+    single-agent behavior unchanged.
 - **LEG-081** Runtime CLI (typer): node bootstrap + `legio agent` lifecycle
   verbs (config: node id, federation token, client tokens, peer allowlist).
   - **Accept**: `legio server ...` starts, exposes `submit`/`status`, and honors
     the LEG-017 config shape; the Runtime lifecycle verbs are reachable via
     `legio agent ...`.
 - **LEG-082** Graceful shutdown + concurrency semaphores (LLM, per-tool).
-  - **Accept**: SIGTERM drains in-flight leases before exit; per-tool
+  - **Accept**: SIGTERM drains in-flight work before exit; per-tool
     concurrency cap is honored under load (test with a slow fake tool).
 
 ### R-9 — Federation

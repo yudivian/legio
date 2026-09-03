@@ -26,7 +26,6 @@ outbox — with a single shared federation token guarding it.
   (agent interface); negotiation happens before use.
 - **Work items:** remote deposit into the acceptor's queue (dedup by task id
   via idempotency in LEG-093); read-then-ack via outbox.
-- **Retries & leases** stay local to the owning queue in v1.
 
 ## Interface
 - `GET /catalog`, `POST /work-items/{agent}`, outbox `GET`/`DELETE`-consumed

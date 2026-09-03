@@ -2,13 +2,12 @@
 
 The AgentBase is the generalized per-step runner every atomic agent and
 composite implements (LEG-023). Its ``run()`` pops a work item from its native
-beaver queue, takes a native beaver lock as the lease, dispatches it to the
-step's job (a subclass ``_handle``), applies the ``retry_guard`` / ``monitor``
-hooks, and routes the outcome by position (Schema 2): advance to the next class
-of the level as an ``ExecutionRequestMessage`` or, at the end of the level,
-deposit an ``ExecutionResultMessage`` to the level's ``end_of_level_queue``. All
-substrate is native beaver (LEG-048); queues are addressed by name on the shared
-db.
+beaver queue (destructively — no lease, no retry, no re-queue), dispatches it
+to the step's job (a subclass ``_handle``), applies the ``monitor`` hook, and
+routes the outcome by position (Schema 2): advance to the next class of the
+level as an ``ExecutionRequestMessage`` or, at the end of the level, deposit an
+``ExecutionResultMessage`` to the level's ``end_of_level_queue``. All substrate
+is native beaver (LEG-048); queues are addressed by name on the shared db.
 """
 
 from __future__ import annotations
@@ -65,10 +64,9 @@ class ChainAgent(AgentBase):
 
 
 class FailingAgent(AgentBase):
-    """A broken step: raises in _handle. retry_guard decides whether to retry."""
+    """A broken step: raises in _handle, surfaced as a visible error result."""
 
-    def __init__(self, *, max_retries: int = 0, **kwargs: object) -> None:
-        self._max_retries = max_retries
+    def __init__(self, **kwargs: object) -> None:
         self.failures: list[str] = []
         super().__init__(**kwargs)  # type: ignore[arg-type]
 
@@ -89,21 +87,15 @@ class BuildAgent(AgentBase):
 @dataclass
 class HookRecorder:
     events: list[tuple[str, str]] = field(default_factory=list)
-    _max_retries_for: int = 0
 
     async def monitor(self, agent_id: str, task_id: str, event: str) -> None:
         self.events.append((event, task_id))
-
-    async def retry_guard(self, agent_id: str, task_id: str, error: str, attempt: int) -> bool:
-        self.events.append(("retry_guard", task_id))
-        return attempt < self._max_retries_for
 
 
 def build(agent_cls, *, agent_id: str, db: AsyncBeaverDB, **extra: object):
     return agent_cls(
         agent_id=agent_id,
         db=db,
-        lease_ttl=60.0,
         **extra,  # type: ignore[arg-type]
     )
 
@@ -170,28 +162,7 @@ async def test_broken_step_marks_task_failed_without_crash(beaver_db: AsyncBeave
     assert "error" in result.payload
 
 
-@pytest.mark.asyncio
-async def test_retry_guard_fires_and_retries_then_deposits_error(
-    beaver_db: AsyncBeaverDB,
-) -> None:
-    recorder = HookRecorder()
-    recorder._max_retries_for = 2
-    agent = build(FailingAgent, agent_id="main", db=beaver_db)
-    agent.set_hooks(retry_guard=recorder.retry_guard)
 
-    await beaver_db.queue(queue_key("main")).put(
-        make_request(task_id="T-retry").model_dump(mode="json"), priority=0.0
-    )
-
-    await agent.run()
-
-    assert agent.failures == ["T-retry", "T-retry"]
-    assert recorder.events.count(("retry_guard", "T-retry")) == 2
-    result_item = await pop_one(beaver_db, "client")
-    assert result_item is not None
-    result = ExecutionResultMessage.model_validate(result_item)
-    assert result.task_id == "T-retry"
-    assert "error" in result.payload
 
 
 @pytest.mark.asyncio

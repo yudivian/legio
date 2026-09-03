@@ -12,8 +12,8 @@
 > task's **final-result queue** (`result_queue_key(task_id)`) and seeds it as
 > the root token's `end_of_level_queue`; the class that closes the flow at
 > `level == 1` deposits the final result there. The client reads it back via
-> `status` (a non-destructive `peek`). (The R-6 lease reaper, LEG-060, and the
-> TaskManager reaper, R-8, are unrelated and remain.) There is **no** store and
+> `status` (a non-destructive `peek`).
+> There is **no** store and
 > **no** `client:{task_id}` queue — the destination lives in the token.
 
 ## Goal

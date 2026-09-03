@@ -45,5 +45,5 @@ in `docs/CONTRACTS/` specify the Schema 1/3 targets, and the code migration is
 the next planned work stream.
 
 On the roadmap: the S1/S3 code migration, then R-4 (composites), R-5 (token),
-R-6 (resilience), R-7 (patterns engine), R-8 (runtime), R-9 (federation),
+R-7 (patterns engine), R-8 (runtime), R-9 (federation),
 R-10 (hardening & release).

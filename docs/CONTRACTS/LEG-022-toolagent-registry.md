@@ -26,7 +26,7 @@ advances the route by position (Schema 2).
 ## Scope
 - **In scope:** the ToolAgent execution path (parameters resolution → call →
   contract validation → route advance / deposit).
-- **Out of scope:** concurrency semaphores (LEG-082), retries (R-6), runtime
+- **Out of scope:** concurrency semaphores (LEG-082), runtime
   tool-loading mechanics (decided at implementation, not the schema).
 
 ## Contract & design

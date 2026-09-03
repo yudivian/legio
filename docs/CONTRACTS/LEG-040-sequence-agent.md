@@ -17,9 +17,8 @@ the following class's queue and the last processor closes the level
 (AGENT_LIFECYCLE §12.3). No gathering queue.
 
 **Ordering is by chain deposit, never by locking.** No agent waits on another
-and nothing is blocked: a step runs as soon as its item arrives in its queue
-(its only lease is the per-task execution lease, which protects the item from
-double execution, not the ordering). Step 2 simply cannot start until step 1's
+and nothing is blocked: a step runs as soon as its item arrives in its queue.
+Step 2 simply cannot start until step 1's
 result lands in step 2's queue — the order is encoded in the token's
 `level_route`/`current_index`, not enforced by any lock. This is the polling,
 decoupled philosophy (AGENTS.md rule 8).

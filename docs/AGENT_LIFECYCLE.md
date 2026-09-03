@@ -226,7 +226,7 @@ Destruction always happens **in hot** (never in the bootstrap) and is always an
 armageddon of the class. It takes a parameter:
 
 - **`now`** — everything goes immediately: spec, queue, all instances, including
-  any pending / in-lease items. The operator must be conscious of the loss.
+  any pending items. The operator must be conscious of the loss.
 - **`drain`** — the class is destroyed **once nothing is pending** (it waits for
   its queue to drain before removing spec + queue + instances). Preserves no-loss.
   **`drain` is the default.**
@@ -799,10 +799,10 @@ Precondition: the instance exists and is enabled.
 
 | # | Action | Class | Instance |
 |---|---|---|---|
-| 1 | Pause the agent (release its lease safely, at-least-once) | unchanged | `created / disabled` |
+| 1 | Pause the agent | unchanged | `created / disabled` |
 
 How: **Runtime** → **TaskManager** pauses that single agent's loop
-(`pause(task_id)`, release lease, at-least-once) and confirms
+(`pause(task_id)`) and confirms
 `tm_control == pause` (TM read; fact) → on success **Runtime** → **AgentRegistry**
 `set_instance_state(disabled)` (posteriori). Unlike disable-class, here **one
 specific agent is stopped**.
@@ -829,11 +829,11 @@ Precondition: the instance exists.
 
 | # | Action | Class | Instance |
 |---|---|---|---|
-| 1 | Terminate the agent (release its loop and lease) | unchanged | `does not exist` |
+| 1 | Terminate the agent | unchanged | `does not exist` |
 | 2 | (corollary) if it was the last instance, the class becomes disabled | `created / disabled` | — |
 
 How: **Runtime** → **TaskManager** destroys that agent's loop (`cancel(task_id)`)
-and confirms a terminal state (`failed(cancelled)` / `failed(executor_died)`)
+and confirms a terminal state (`failed(cancelled)`)
 (TM read; fact) → on success **Runtime** → **AgentRegistry** `remove_instance`
 (posteriori); if it was the last instance, `set_class_state(disabled)` — and reads
 report it via the **effective state** (§4.4) even across the two records.
@@ -919,8 +919,7 @@ Runtime, `legio.manager`).
 **What a task is (domain-free).** A task is identified by `task_id` (uuid). Its
 record lives on the registry `db.dict("tm_tasks")` and holds: `name`, `args`,
 `kwargs`, `status`, `cancellable`, `next_run_at`, timestamps (`enqueued_at`,
-`started_at`, `finished_at`), `result`, `error`, and the resilience fields
-reserved for R-6 (`attempts`, `lease_expires_at`). Status is one of `pending |
+`started_at`, `finished_at`), `result`, `error`. Status is one of `pending |
 running | success | failed | cancelling` (`cancelling` is the visible half-open
 state of a cooperative cancel). Execution time is the `next_run_at` **field**
 (rule 8 — no sleeps, no scheduler).
@@ -933,7 +932,6 @@ state of a cooperative cancel). Execution time is the `next_run_at` **field**
 | queue | `tm_scheduled` | task ids ordered by `next_run_at` (priority = timestamp) |
 | queue | `tm_pending` | task ids due now (priority 0) |
 | dict | `tm_control` | cooperative control per task: `run \| pause \| cancel` (TTL) |
-| lock | `tm_lease:{task_id}` | execution lease (TTL + renew); a dead executor's lease expires and the task becomes stale to the reaper |
 
 Result/error travel **inside the task record** — consumers poll
 `status(task_id)`. There is no result queue: polling-only (rule 8).
@@ -965,24 +963,20 @@ queues:
 1. tm_scheduled.peek() → get() the due head (next_run_at <= now) → dispatch
 2. else tm_pending.get(block=False) → dispatch   (IndexError ⇒ nothing due; run() returns)
 3. dispatch(task_id):
-   a. acquire tm_lease:{task_id} (TTL; renew while running)
-   b. status := running (+ started_at, lease_expires_at)
-   c. cancellable? drive the generator, checking tm_control at each yield:
+   a. status := running (+ started_at)
+   b. cancellable? drive the generator, checking tm_control at each yield:
         run    → advance one step
-        pause  → yield without advancing (lease kept; at-least-once)
+        pause  → yield without advancing
         cancel → cancelling → failed(cancelled)
       not cancellable? await callable(*args, **kwargs)
-   d. success + result | failed + error   (never silent, rule 9)
-   e. release the lease
+   c. success + result | failed + error   (never silent, rule 9)
 ```
 
-- **Reaper (`reap`)**: a task `running` whose `lease_expires_at` is stale is
-  marked `failed(executor_died)` — the mirror must show when an agent's
-  executor died. Lease-based **retry** (`attempts` → re-queue) and **DLQ** are
-  R-6 (LEG-060/061/062); the fields exist already.
+- **Executor death**: because `get()` is destructive/atomic and a task executes
+  once, a crashed executor is not retried and runs are not at-least-once. A
+  crashed loop is surfaced visibly rather than silently re-run.
 - **Multi-process concurrency**: several TM task executors (any process) drain
-  the same queues; `get()` is destructive/atomic, so a task executes once; the
-  lease arbitrates the reaper in crash windows.
+  the same queues; `get()` is destructive/atomic, so a task executes once.
 
 **Lifecycle verbs → task language.** The TM executes these facts; the Runtime
 decides them and records them in the `AgentRegistry` **after** each is confirmed
@@ -1007,7 +1001,7 @@ decides them and records them in the `AgentRegistry` **after** each is confirmed
 
 **Compliance (audit).** Polling-only / no sleeps (rule 8), scheduling as a field
 (`next_run_at`); domain-free (rule 7 — names/states only, never agents); errors
-never silent (rule 9 — `failed`+`error` visible, `failed(executor_died)`,
+never silent (rule 9 — `failed`+`error` visible,
 `cancelled`); everything is a registry (rule 13 — callables are code, never
 authority); logging with the implementation (rule 11); no instance supervisor
 (the TM is executor only; the Runtime decides; the agent's internal cycle is the
@@ -1106,9 +1100,9 @@ No disablement-history is recorded; the live catalog is what guides decisions.
 ### Open decisions
 
 1. **"Pending work" boundary / drain semantics (resolved 2026-08-30 by §4.6):**
-   `now` destroys everything including **pending and in-lease** items (the
+   `now` destroys everything including **pending** items (the
    operator consciously accepts the loss); `drain` waits for the queue to empty —
-   in-flight leases keep running to completion, nothing new enters, and the
+   in-flight steps run to completion, nothing new enters, and the
    drain completes. The queue does **not** grow, termination is eventual when
    things work, and a **large timeout** is the safety valve (visible failure on
    expiry — rule 9). No further boundary to decide.
@@ -1122,15 +1116,15 @@ No disablement-history is recorded; the live catalog is what guides decisions.
    TaskManager never sees business submissions, and there is no open/closed
    attribute on a beaver queue to "close"). §0/§5/§5.6/§5.8/§6 wording updated
    accordingly (reconciled thread 3).
-4. **Lease reaper in the minimal TaskManager (resolved 2026-08-30):** the
-   minimal TM includes the execution lease + the stale-lease →
-   `failed(executor_died)` reaper. Without it the mirror would report a dead
-   instance as alive — violates registration-is-a-mirror and rule 9. Retry
-   (`attempts` → re-queue) and DLQ stay in R-6 (LEG-060/061/062).
+4. **Dispatch has no lease or reaper (resolved 2026-09-02):** the agent's
+   polling loop is not lease/supervised. `get()` is destructive/atomic: an item
+   is popped once and routed, a crashed executor is surfaced visibly and never
+   re-run (rule 8 polls, never pushes; rule 9 never silent). No reaper, no
+   `executor_died` recovery, no retry/DLQ — those invented mechanism are removed.
 5. **TaskManager scope names and placement (confirmed 2026-08-30):** module
    **`legio.taskmanager`**; class **`TaskManager`**; beaver scopes, all under the
    `tm_` prefix: `tm_tasks` (dict), `tm_scheduled` (queue), `tm_pending` (queue),
-   `tm_control` (dict), `tm_lease:{task_id}` (lock). Normative in `legio.naming`
+   `tm_control` (dict). Normative in `legio.naming`
    (LEG-016) at implementation.
 
 ### Open risks
@@ -1138,20 +1132,23 @@ No disablement-history is recorded; the live catalog is what guides decisions.
 1. **The lifecycle layer must not absorb the DAG / routing** — it governs only
    existence and lifecycle. This is the central design risk.
 2. **A disabled class, never re-enabled, accumulates or leaks pending work** —
-   mitigate eventually via DLQ / reaper (R-6).
+   pending item loss on `now`-destroy is operator-visible/acceptable; `drain`
+   avoids it. No silent accumulation is tolerated (rule 9).
 3. **Two state levels (class + instance) must stay coherent** — prefer that
    instances read (derive) the class state rather than the registry coordinating
    each instance individually.
-4. **"Polling" means the agent's loop is scheduled / supervised** (reaper, not
-   a busy loop — AGENTS.md rule 8), not a permanently active thread.
+4. **"Polling" means the agent's loop is scheduled by the TaskManager as a task**
+   (a runnable task the TM executes, bounded by `max_steps` — not a
+   permanently active uncontrolled thread, AGENTS.md rule 8), not a leased,
+   at-least-once execution.
 5. **The task executing an agent's loop can die outside any operator operation**
-   (the agent's executor crashes → TM reaper marks `failed(executor_died)`),
-   leaving a catalog instance that no longer exists and a class that *reads*
-   `enabled` (or `disabled`) with zero live agents. The **effective state** read
-   (§4.4) limits the damage — zero instances read as `disabled` — but the stale
-   entry persists until an operator `destroy_instance`, or R-8 pooling
-   reconciles/respawns it. Automatic reconciliation/respawn is **R-8 / LEG-080**
-   (not part of this design).
+   (the agent's executor crashes), leaving a catalog instance that no longer
+   exists and a class that *reads* `enabled` (or `disabled`) with zero live
+   agents — surfaced as a visible task failure (rule 9). The **effective state**
+   read (§4.4) limits the damage — zero instances read as `disabled` — but the
+   stale    entry persists until an operator `destroy_instance`, or the R-8 pools
+   (LEG-080) reconcile/respawn it. Automatic reconciliation/respawn is **R-8 /
+   LEG-080 pools** (not part of this design).
 
 ---
 
@@ -1300,8 +1297,8 @@ and not in any central engine. A sequence needs no such bookkeeping at all
 
 **Failure and fan-in.** A child failure becomes an `ExecutionResultMessage`
 with an `error` payload through the existing failure path (§7/ARCH §8, rule 9):
-the parallel accounts for it (tolerant policy, R-6 refines) and the parent flow
-continues or fails visibly. Exhausted attempts go to the DLQ (R-6). Errors are
+the parallel accounts for it and the parent flow
+continues or fails visibly. Errors are
 never silent.
 
 ### 12.5 Handshake with the class lifecycle (deposit-time gate)
@@ -1340,7 +1337,8 @@ another class's queue. Rules (decoupled, local, no oracle):
 
 ### 12.6 Polling-only, fields not mechanisms (restated for execution)
 
-- Retry is `next_run_at` (a field), never a sleep/delay in the flow.
+- Scheduling is `next_run_at` (a field on the task record), never a
+  sleep/delay in the flow.
 - Idle is `get(block=False)` → `IndexError` → the instance loop returns.
 - Scheduling/supervision of the instance loop is the TaskManager's (§6.1,
   §10 risks 3-5); the flow itself never sleeps, never loops waiting for a

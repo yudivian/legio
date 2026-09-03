@@ -16,7 +16,6 @@ from legio.errors import (
     UnrecoverableError,
     code,
     recoverable,
-    retriable,
 )
 from legio.naming import (
     is_reserved_agent,
@@ -84,11 +83,6 @@ def test_legio_error_model_exposes_code() -> None:
 def test_error_recoverable_flag() -> None:
     assert recoverable(RecoverableError("transient")) is True
     assert recoverable(UnrecoverableError("fatal")) is False
-
-
-def test_error_retriable_flag() -> None:
-    assert retriable(RecoverableError("transient")) is True
-    assert retriable(UnrecoverableError("fatal")) is False
 
 
 def test_invalid_name_error_is_typed() -> None:

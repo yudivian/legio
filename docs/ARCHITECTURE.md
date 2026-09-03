@@ -15,7 +15,6 @@
   inside the messages themselves (§12 of `docs/AGENT_LIFECYCLE.md`).
 - **Scale = replicas of the same agent** (pool); **federation = nodes sharing
   agents**.
-- **Retry is a field** (`next_run_at`, `attempts`), not a mechanism.
 - **Capability = a registered agent**; a tool is the internal resource backing
   it.
 - **Domain knowledge lives 100% outside legio**: in patterns (YAML data) and in
@@ -26,7 +25,7 @@
 ```
 External API      Runtime (submit/status · lifecycle ops · CLI/HTTP)
 Federation        catalog · resolver · work-item HTTP · outbox
-Lifecycle         AgentRegistry (mirror: catalog + YAML cache) · TaskManager (task engine + reaper)
+Lifecycle         AgentRegistry (mirror: catalog + YAML cache) · TaskManager (task engine + scheduler)
 Agents            linguistic · tool · sequence · parallel  (+ base)
 Flow              FlowToken (level_route + current_index + end_of_level_queue + level) · message payload
 Patterns          YAML → PatternSpec → pydantic models (compile-time)
@@ -52,12 +51,13 @@ beaver primitives by name, exactly as castor's Manager calls `db.dict` /
   queue that the submit sets as the root `end_of_level_queue`.
 - **Queue** — beaver persistent priority queue per agent:
   `db.queue("legio:queue:<agent_id>")`; `get(block=False)` pops destructively and
-  raises `IndexError` when empty; `put(item, priority=...)` deposits;
-  `next_run_at` schedules retries with no scheduler. The TaskManager adds its own
-  two queues — `tm_pending` and `tm_scheduled` (§6.1).
-- **Lock** — beaver lock with TTL + `renew`; it is the *task lease* (keyed on
-  the queue item, released on ack). If a replica dies, the lease expires and the
-  item becomes reclaimable (at-least-once, R-6).
+  raises `IndexError` when empty; `put(item, priority=...)` deposits the next
+  request/result. An item is popped once and routed (rule 8: polling only — no
+  schedule gate, no re-queue). The TaskManager adds its own two queues —
+  `tm_pending` and `tm_scheduled` (§6.1).
+- **Lock** — beaver lock with TTL + `renew`, used only where genuine mutual
+  exclusion over a shared key is required (it is **not** a per-dispatch task
+  lease: the dispatch is stateless and holds no lock).
 - The **only** key namespace legio invents is the per-agent queue name
   (`legio:queue:<agent>`, `legio.naming.queue_key`); registries are beaver
   dicts addressed by scope name directly.
@@ -113,8 +113,9 @@ composite:
   └─ parallel    → the only join point; inbox + gathering queue (§12 AGENT_LIFECYCLE)
 ```
 
-- **Common base** (what truly abstracts all agents): `run()` = polling loop with
-  lease + heartbeat; `submit()`; `pool_size` replicas share the same queue; the
+- **Common base** (what truly abstracts all agents): `run()` = polling loop
+  (pops one item once and routes it — no lease, no retry); `submit()`;
+  `pool_size` replicas share the same queue; the
   input/output contract (`ExecutionRequest/ResultMessage` + `output_as`) is
   identical for every agent.
 - Orchestration cannot tell a linguistic agent apart from a concrete one — only
@@ -148,8 +149,9 @@ composite:
   executes (async or blocking via `to_thread`), and bounds the output under the
   agent's `output_as`/`output_schema` — the consuming agents, not the tool,
   declare output capacity (Schema 3). It completes with an
-  `ExecutionResultMessage`. On failure there is no output; retry/DLQ is decided
-  by the orchestration (lease / `next_run_at` / `attempts`), never by the tool.
+  `ExecutionResultMessage`. On failure there is no output and the step is
+  surfaced as a visible error result (never silent) — the tool never decides
+  routing.
 - **lingo is bounded to linguistic agents.** Concrete agents never pass through
   it. lingo's tool-calling is reserved for a future agentic path where the LLM
   chooses a tool — not the deterministic case.
@@ -200,10 +202,12 @@ composite:
 
 ## 8. Failure and resilience
 
-- **Lease with heartbeat**: a live replica renews the item's lock; if it dies,
-  the lease expires and the item is reclaimable (re-queue).
-- **Reaper**: detects expired leases and re-queues; after `attempts` max → DLQ.
-  Retry policy lives in `next_run_at`/`attempts`, never in sleeps.
+- **Errors are never silent** (AGENTS.md rule 9): a step that raises is routed
+  to a visible `error` result; the task ends in a known terminal state. There is
+  no retry policy and no re-queue — a raised step is surfaced, not re-run.
+- **Polling only** (rule 8): nothing sleeps and nothing is leased; resilience is
+  idempotency (an item deposited again produces the same outcome) and visibility,
+  not at-least-once execution guards.
 - **Tolerant parallel**: waits for all children; a child failure yields a final
   result with error / partial content according to the pattern's policy.
 
@@ -229,7 +233,8 @@ composite:
   the result exits via **outbox**, consumed by the author via **polling**
   (write-before-ack; at-least-once documented).
 - The **author owns the result**; the acceptor executes and returns. Work-item
-  lease/heartbeat give tolerance to an acceptor's outage.
+  delivery is write-before-ack via the outbox, giving tolerance to an acceptor's
+  outage.
 - **Interfaces are versioned**: the catalog declares each agent's interface and
   `schema_version`; the author validates the interface on POST (4xx on
   mismatch). Only configured peers (`federation.peers`) are reachable (see

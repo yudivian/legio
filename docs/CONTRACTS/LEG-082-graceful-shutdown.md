@@ -4,19 +4,19 @@
 - **Rasante:** R-8
 - **GitHub issue:** #37
 - **Source:** `docs/PLAN.md` (LEG-082)
-- **Depends on:** LEG-060, LEG-013 (per-tool)
+- **Depends on:** LEG-013 (per-tool)
 
 ## Goal
-Operational hygiene: SIGTERM drains in-flight `<lease>{task}</lease>` before
-exit; per-tool and per-LLM concurrency semaphores are honored.
+Operational hygiene: SIGTERM drains in-flight work before exit; per-tool and
+per-LLM concurrency semaphores are honored.
 
 ## Scope
 - **In scope:** graceful drain, per-tool + per-LLM semaphores.
-- **Out of scope:** load-balancing (LEG-080), queue priorities (LEG-061).
+- **Out of scope:** load-balancing (LEG-080).
 
 ## Contract & design
-- On SIGTERM: stop leasing, drain in-flight items (result always deposited),
-  then exit; lease renewal stops only after deposit (LEG-060 safety).
+- On SIGTERM: stop pulling new items, finish in-flight steps (their result is
+  always deposited), then exit.
 - Sempahores cap concurrent LLM calls and per-tool executions; a constrained
   tool simply waits rather than failing.
 
@@ -25,7 +25,7 @@ exit; per-tool and per-LLM concurrency semaphores are honored.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-082), verbatim:
-- SIGTERM drains in-flight leases before exit; per-tool concurrency cap is
+- SIGTERM drains in-flight work before exit; per-tool concurrency cap is
   honored under load (test with a slow fake tool).
 
 ## Tests

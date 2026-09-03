@@ -41,13 +41,11 @@ class LinguisticAgent(AgentBase):
         lingo_client: Any,
         prompt_template: str,
         output_model: type[BaseModel],
-        lease_ttl: float = 60.0,
         system_vars: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(
             agent_id=agent_id,
             db=db,
-            lease_ttl=lease_ttl,
         )
         self._lingo = lingo_client
         self._prompt = prompt_template

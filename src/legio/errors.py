@@ -1,8 +1,10 @@
 """`legio.errors` — the typed error taxonomy (LEG-016).
 
 All legio errors derive from ``LegioError`` and carry a stable ``code`` derived
-from the message. Each error is either recoverable (retriable) or not; this
-drives retry/DLQ policy (R-6). Failures are never silent (AGENTS.md rule 9).
+from the message. The taxonomy separates transient (recoverable) from fatal
+(unrecoverable) authoring/validation failures so they fail loudly and
+distinctly. Failures are never silent (AGENTS.md rule 9); there is no retry
+policy — errors surface as visible results.
 """
 
 from __future__ import annotations
@@ -21,9 +23,6 @@ def code(message: str) -> str:
 class LegioError(Exception):
     """Base class for every legio error."""
 
-    _recoverable = True
-    _retriable = True
-
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
@@ -34,17 +33,11 @@ class LegioError(Exception):
 
 
 class RecoverableError(LegioError):
-    """A transient failure that may succeed when retried."""
-
-    _recoverable = True
-    _retriable = True
+    """A transient failure that may succeed on a later run."""
 
 
 class UnrecoverableError(LegioError):
-    """A fatal failure that must not be retried."""
-
-    _recoverable = False
-    _retriable = False
+    """A fatal authoring/validation failure that must surface loudly."""
 
 
 class InvalidNameError(RecoverableError):
@@ -61,13 +54,8 @@ class TemplateResolutionError(UnrecoverableError):
 
 
 def recoverable(error: LegioError) -> bool:
-    """Whether the error type is recoverable (safe to retry)."""
-    return isinstance(error, LegioError) and error._recoverable
-
-
-def retriable(error: LegioError) -> bool:
-    """Whether the error type is retriable (lease/NN retry eligible)."""
-    return isinstance(error, LegioError) and error._retriable
+    """Whether the error type is recoverable (a transient failure)."""
+    return isinstance(error, RecoverableError)
 
 
 __all__ = [
@@ -78,5 +66,4 @@ __all__ = [
     "UnrecoverableError",
     "code",
     "recoverable",
-    "retriable",
 ]

@@ -25,9 +25,9 @@ type-safe across the codebase, logs and APIs.
   - task: `{uuid}`, globally unique; its final result is addressed by the helper
     `result_queue_key(task_id)` → `result:<task_id>` (the submit-seeded
     `end_of_level_queue` at level 1)
-- **Errors** are typed exceptions with `code`, `recoverable: bool`, and
-  `retriable: bool` (feeds LEG-061); boundaries (HTTP, CLI, logs) render them
-  consistently.
+- **Errors** are typed exceptions with a stable `code`, split into recoverable
+  (transient) and unrecoverable (fatal authoring/validation) families;
+  boundaries (HTTP, CLI, logs) render them consistently.
 
 ## Interface
 - Identifier validation helpers + error classes as the module contract.
@@ -35,7 +35,7 @@ type-safe across the codebase, logs and APIs.
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-016), verbatim:
 - Identifiers typechecked in module signature; invalid names rejected at
-  runtime; error codes/recoverable/retriable documented.
+  runtime; error codes and recoverability documented.
 
 ## Tests
 - Contract tests (red first): naming rules, reserved identities, error mapping.

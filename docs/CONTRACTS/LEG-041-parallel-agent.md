@@ -18,7 +18,7 @@ per (parallel, task) via the per-class bookkeeping
 
 - **In scope:** concurrent deposit of child tasks across class inboxes, fani-in
   join per (parallel, task), building the parallel's payload on all-complete.
-- **Out of scope:** parallel failure policy (LEG-063), pools (LEG-080).
+- **Out of scope:** pools (LEG-080).
 
 ## Contract & design
 
@@ -26,7 +26,7 @@ per (parallel, task) via the per-class bookkeeping
   **gathering queue** for fan-in returns (§12.3); collapsing them into one
   physical queue by message-type dispatch is an implementation choice.
   The payload travels in the messages (§12.1); the gathering bookkeeping
-  (`state:parallel:<class>`, locked, keyed per task) is the join state — not an
+  (`state:parallel:<class>`, keyed per task) is the join state — not an
   out-of-message accumulator.
 - Fan-in identity: dedupe per **(parallel, task, branch slot)**. The **task id
   is the task's identity and never changes anywhere in the flow** (AGENTS.md /
@@ -43,7 +43,7 @@ per (parallel, task) via the per-class bookkeeping
   by the gatherer (H1).
 - The parallel **builds its payload** from the branch results (H3): each branch
   outcome is projected under its `output_as` namespace via
-  `legio.flow.build_payload`; fail policy hooks LEG-063.
+  `legio.flow.build_payload`.
 - Nested composites need no token change beyond the branch depth: a composite
   is an ordinary class on the route — it is invoked like any capability agent
   through its inbox and returns along its `end_of_level_queue` (the parallel's

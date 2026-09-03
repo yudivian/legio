@@ -12,7 +12,7 @@ green: a sequence (steps chained on one path) and a parallel (fan-out/join).
 
 ## Scope
 - **In scope:** in-repo example patterns + end-to-end composite tests.
-- **Out of scope:** retry/fail policies (R-6), resilience scenarios (LEG-064).
+- **Out of scope:** resilient parallel failure policies.
 
 ## Contract & design
 - In-repo examples (no consumer material):

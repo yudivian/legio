@@ -58,9 +58,8 @@ class ParallelAgent(AgentBase):
         agent_id: str,
         db: Any,
         branches: Sequence[str],
-        lease_ttl: float = 60.0,
     ) -> None:
-        super().__init__(agent_id=agent_id, db=db, lease_ttl=lease_ttl)
+        super().__init__(agent_id=agent_id, db=db)
         self._branches: list[str] = list(branches)
         self._state = db.dict(f"{_STATE_SCOPE}:{agent_id}")
 

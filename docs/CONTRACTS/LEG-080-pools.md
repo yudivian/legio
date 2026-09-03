@@ -4,22 +4,22 @@
 - **Rasante:** R-8
 - **GitHub issue:** #40
 - **Source:** `docs/PLAN.md` (LEG-080)
-- **Depends on:** LEG-060 (leases)
+- **Depends on:** LEG-023
 
 ## Goal
 Horizontal capacity: `pool_size` agents of a class consuming the same class
-queue concurrently, each item leased exactly once; single-agent behavior
-unchanged.
+queue concurrently, each item consumed by exactly one agent; single-agent
+behavior unchanged.
 
 ## Scope
 - **In scope:** pool_size (a creation parameter of the class, §4.3 of
-  AGENT_LIFECYCLE), concurrent consumption, exactly-once lease.
+  AGENT_LIFECYCLE), concurrent consumption.
 - **Out of scope:** cross-node pools (R-9 owns federation).
 
 ## Contract & design
 - A class of `pool_size = N` has N agents, each running its own internal loop on
-  the class's queue (`AgentBase.run`, LEG-023); the lease claims items
-  atomically (LEG-060) so only one agent executes each item.
+  the class's queue (`AgentBase.run`, LEG-023); each loop pops the next item, so
+  with N loops N items are processed concurrently.
 - `pool_size` is a **creation parameter of the class, given with its YAML spec**
   (`create-class <spec.yaml> [--pool N]`, §4.3/§4.8 of AGENT_LIFECYCLE) — the
   spec is data (patterns as YAML, rule 7), the pool size is operator capacity,
@@ -33,11 +33,11 @@ unchanged.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-080), verbatim:
-- n agents on the same queue process n items concurrently; each item leased
-  exactly once; single-agent behavior unchanged.
+- n agents on the same queue process n items concurrently; single-agent behavior
+  unchanged.
 
 ## Tests
-- Contract tests (red first): concurrency, exactly-once, n=1 regression.
+- Contract tests (red first): concurrency, n=1 regression.
 
 ## Validation case
 - Load test with the `distribute_summary` example (slow fake tool).
