@@ -75,9 +75,11 @@ a branch or sub-sequence — classes, not global patterns), `current_index`
 (0-based position of the class processing in `level_route`), `end_of_level_queue`
 (queue at the end of this level's sequence), `level` (branch-depth counter,
 starts 1), `launcher_class` (class that started the flow; constant,
-informational), `task_id` (public), `message_type` (execution_request |
-execution_result), `payload` (the data — single container for both
-roles).
+informational), `task_id` (public), `branch_id` (a parallel's branch slot
+identity, assigned at fan-out to the branch class name and preserved through the
+branch's execution; empty for non-branch messages), `message_type`
+(execution_request | execution_result), `payload` (the data — single container
+for both roles).
 
 - **Who builds it**: the **submit** seeds the flow on a `main` agent in **level
   1** with `end_of_level_queue` = the **final-result queue** (there is no
@@ -91,8 +93,11 @@ roles).
   `end_of_level_queue`). Generalized end rule.
 - **Parallel (branching)**: on receiving a request the parallel does not advance
   while its branches run; it fans out giving each branch its `level_route`,
-  `current_index = 0`, `end_of_level_queue` = its **gathering queue**, and
-  `level + 1`. On fan-in completion it decrements `level` (−1) and resumes its
+  `current_index = 0`, `end_of_level_queue` = its **gathering queue**, `level + 1`
+  and its `branch_id` (= the branch class name); on fan-in the returning result's
+  `branch_id` names the join slot (so a multi-step branch, whose returned
+  `level_route` expands to its own stages, still slots under the parent-assigned
+  id). On fan-in completion it decrements `level` (−1) and resumes its
   level (`current_index + 1`), with `end_of_level_queue` the one its creator
   supplied. A parallel-as-branch at level 2 closes to its gathering; only a
   last-of-sequence at `level == 1` delivers the final result.

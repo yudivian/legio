@@ -33,8 +33,14 @@ per (parallel, task) via the per-class bookkeeping
   Schema 2) — not even across a fan-out: every branch is deposited and every
   branch result returns with the SAME `task_id` as its parallel parent. The
   parallel's join bookkeeping is keyed **directly on that `task_id`** (O(1)
-  `fetch`, no child→parent lookup, no scanning); the result's `level_route[0]`
-  names the branch slot, and the join counts slots until all of the parallel's
+  `fetch`, no child→parent lookup, no scanning). Each branch carries a
+  **`branch_id`** (a Schema 2 token field) set by the parallel at fan-out to the
+  branch class name and **preserved through the branch's whole execution**
+  (base route + sequence re-seed); the result's `branch_id` names the branch
+  slot. This is what lets a **composite/multi-step branch** — whose returned
+  `level_route` expands to its own internal steps — still slot under the
+  parent-assigned id (its `level_route[0]` would be the branch's first *step*,
+  not the branch class). The join counts slots until all of the parallel's
   branches for the task are present. Each branch is one child task (LEG-052);
   result identity per (parallel, task, slot) — a branch's distinctness comes
   from its path/slot, not from a synthetic id. Join waits (in the bookkeeping,

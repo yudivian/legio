@@ -108,6 +108,10 @@ async def test_parallel_fans_out_both_branches_sharing_task_id(
     assert r2.task_id == "P-root"
     assert r1.payload == {"seed": 9}
     assert r2.payload == {"seed": 9}
+    # the parent assigns a stable branch_id (the branch class name) so a
+    # multi-step branch can still be slotted on join
+    assert r1.branch_id == "b1"
+    assert r2.branch_id == "b2"
 
 
 @pytest.mark.asyncio
@@ -218,6 +222,119 @@ async def test_parallel_joins_and_delivers_to_flow_end(
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "P-end"
     assert result.payload == {"seed": 4, "b1": 4, "b2": 4}
+
+
+@pytest.mark.asyncio
+async def test_parallel_joins_a_multi_step_branch_by_branch_id(
+    beaver_db: AsyncBeaverDB,
+) -> None:
+    """A composite (multi-step) branch returns with an expanded ``level_route``
+    whose first element is the branch's first *step*, not the branch class name.
+    The parallel must still slot it correctly via the stable ``branch_id`` the
+    parent assigned at fan-out (fixed by LEG-041 branch_id schema field).
+    """
+    par = build_parallel(db=beaver_db, branches=["seqbranch", "atomic"])
+    request = par_request(
+        task_id="P-branchy",
+        payload={"seed": 3},
+        route=("main", "par", "after"),
+        current_index=1,
+        end_of_level_queue="result:P-branchy",
+    )
+    await beaver_db.queue(queue_key("par")).put(request.model_dump(mode="json"), priority=0.0)
+    assert await par.process_next() is True
+
+    # The multi-step branch ('seqbranch') is a sequence whose first stage is
+    # 'summ_a'; its returning result carries the expanded level_route
+    # ("summ_a", "summ_b") but the parent-assigned branch_id = "seqbranch".
+    await beaver_db.queue(queue_key("par")).put(
+        ExecutionResultMessage(
+            level_route=("summ_a", "summ_b"),
+            current_index=1,
+            end_of_level_queue="par",
+            level=2,
+            launcher_class="main",
+            task_id="P-branchy",
+            branch_id="seqbranch",
+            payload={"seq": "ok"},
+        ).model_dump(mode="json"),
+        priority=0.0,
+    )
+    assert await par.process_next() is True
+
+    # Second (atomic) branch still returns with its own branch_id.
+    await beaver_db.queue(queue_key("par")).put(
+        ExecutionResultMessage(
+            level_route=("atomic",),
+            current_index=0,
+            end_of_level_queue="par",
+            level=2,
+            launcher_class="main",
+            task_id="P-branchy",
+            branch_id="atomic",
+            payload={"at": 1},
+        ).model_dump(mode="json"),
+        priority=0.0,
+    )
+    assert await par.process_next() is True
+
+    advanced = await pop_one(beaver_db, "after")
+    assert advanced is not None
+    adv = ExecutionRequestMessage.model_validate(advanced)
+    assert adv.current_index == 2
+    assert adv.level == 1
+    assert adv.task_id == "P-branchy"
+    assert adv.payload == {"seed": 3, "seq": "ok", "at": 1}
+
+
+@pytest.mark.asyncio
+async def test_parallel_resume_preserves_its_own_branch_id(
+    beaver_db: AsyncBeaverDB,
+) -> None:
+    """A parallel nested as a branch of an outer parallel must resume its own
+    level carrying the outer-assigned ``branch_id``, so that when it later closes
+    to the outer gathering queue the outer fan-in still slots it correctly.
+    """
+    par = build_parallel(db=beaver_db, branches=["b1", "b2"])
+    # Incoming request arrived as a branch of an outer parallel -> branch_id set.
+    request = par_request(
+        task_id="P-nested",
+        payload={"seed": 1},
+        route=("main", "par", "after"),
+        current_index=1,
+        end_of_level_queue="result:P-nested",
+        level=2,
+    )
+    await beaver_db.queue(queue_key("par")).put(
+        request.model_dump(mode="json") | {"branch_id": "par"},
+        priority=0.0,
+    )
+    assert await par.process_next() is True
+
+    # Both this inner parallel's branches return.
+    for name in ("b1", "b2"):
+        await beaver_db.queue(queue_key("par")).put(
+            ExecutionResultMessage(
+                level_route=(name,),
+                current_index=0,
+                end_of_level_queue="par",
+                level=3,
+                launcher_class="main",
+                task_id="P-nested",
+                branch_id=name,
+                payload={name: 1},
+            ).model_dump(mode="json"),
+            priority=0.0,
+        )
+        assert await par.process_next() is True
+
+    # The resumed advance message must carry the outer branch_id ("par"), NOT "".
+    advanced = await pop_one(beaver_db, "after")
+    assert advanced is not None
+    adv = ExecutionRequestMessage.model_validate(advanced)
+    assert adv.current_index == 2
+    assert adv.task_id == "P-nested"
+    assert adv.branch_id == "par"
 
 
 @pytest.mark.asyncio

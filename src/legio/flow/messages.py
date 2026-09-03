@@ -10,7 +10,9 @@ Token fields (Schema 2, AGENT_LIFECYCLE §4.11): ``level_route`` (the classes of
 this level), ``current_index`` (0-based position), ``end_of_level_queue`` (the
 queue that closes this level — the submit's final-result queue at level 1, a
 parallel's gathering queue for branches), ``level`` (branch depth, starts at 1),
-``launcher_class`` (informational) and ``task_id``. There is no ``next_queue`` /
+``launcher_class`` (informational), ``task_id`` and ``branch_id`` (a parallel's
+branch slot identity, assigned at fan-out and preserved through the branch's
+whole execution — empty for non-branch messages). There is no ``next_queue`` /
 ``ultimate_return_agent_id`` / ``origin_node_id``: routing is by
 position + ``level`` and the end of a level lands on ``end_of_level_queue``.
 """
@@ -55,6 +57,7 @@ class ImmutableMessage(BaseModel):
     level: int = 1
     launcher_class: str = ""
     task_id: str = ""
+    branch_id: str = ""
 
 
 class ExecutionRequestMessage(ImmutableMessage):

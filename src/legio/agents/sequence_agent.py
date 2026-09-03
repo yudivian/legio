@@ -63,6 +63,7 @@ class SequenceAgent(AgentBase):
             level=request.level,
             launcher_class=request.launcher_class,
             task_id=request.task_id,
+            branch_id=request.branch_id,
             payload=request.payload,
         )
         await self._deliver(first_stage, next_request.model_dump(mode="json"))

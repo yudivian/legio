@@ -646,6 +646,7 @@ by position. No results store — the final destination is the final-result queu
 | `level` | branch-depth counter: starts at 1; branching +1; leaving a branch −1. End-of-sequence AND `level == 1` ⇒ flow finished. |
 | `launcher_class` | class of the agent that started the flow; constant, informational, not control. |
 | `task_id` | str, the process's public id. |
+| `branch_id` | str, a parallel's branch slot identity, assigned at fan-out to the branch class name and preserved through the branch's whole execution; empty (default) for non-branch messages. |
 | `message_type` | enum `execution_request` \| `execution_result`. |
 | `payload` | the data (single container for both roles). |
 
@@ -658,11 +659,14 @@ by position. No results store — the final destination is the final-result queu
   is routed.
 - **Parallel (branching):** a parallel class receives its request and does not
   advance while its branches run; it fans out giving each branch its `level_route`
-  and `current_index = 0`, incrementing `level` (+1). Branches return to the
-  parallel's **gathering queue** via their `end_of_level_queue`. On fan-in
-  completion the parallel decrements `level` (−1) and resumes its own level
-  (`current_index + 1` → next of its level), with `end_of_level_queue` the one its
-  creator supplied.
+  and `current_index = 0`, incrementing `level` (+1), and assigning each branch
+  its `branch_id` (= the branch class name, carried on the message). Branches
+  return to the parallel's **gathering queue** via their `end_of_level_queue`;
+  the returning result's `branch_id` names the join slot (so a multi-step branch,
+  whose returned `level_route` expands to its own internal stages, still slots
+  under the parent-assigned id). On fan-in completion the parallel decrements
+  `level` (−1) and resumes its own level (`current_index + 1` → next of its
+  level), with `end_of_level_queue` the one its creator supplied.
 - **Parallel as root:** submit passes its sequence as level 1 with
   `end_of_level_queue` = final-result queue; branches run at level 2 with
   gathering; after fan-in the parallel advances its level-1 sequence with the
@@ -1189,7 +1193,7 @@ Each agent receives the incoming `payload`, performs its processing, and
 exactly as in the reference model (`voice-notes-api`): the message carries
 `payload` (the single container for both request and result roles) and the
 flow fields (`level_route`, `current_index`, `end_of_level_queue`, `level`,
-`launcher_class`, `task_id`, `message_type`, `schema_version`). There is **no**
+`launcher_class`, `task_id`, `branch_id`, `message_type`, `schema_version`). There is **no**
 store that holds per-agent/task state out of the token; the message payload
 is the state — polling-only, nothing central, nothing staged out-of-message
  for later combination. `root` lives in the FlowToken (subclassing the message),

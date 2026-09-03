@@ -17,11 +17,16 @@ parallel needs to resume rides in the message.
 - **Fan-out** (``execution_request``): each branch is deposited to the child
   class's inbox with ``level_route = (branch_class,)``, ``current_index = 0``,
   ``level + 1``, ``end_of_level_queue`` = this parallel's own queue (its
-  gathering queue, collapsed) and the SAME ``task_id``. The parallel does not
-  advance; it records its continuation in the join state keyed by that task id.
-- **Fan-in** (``execution_result``): the result's ``level_route[0]`` names the
+  gathering queue, collapsed), the SAME ``task_id``, and ``branch_id`` = the
+  branch class name. The parallel does not advance; it records its continuation
+  in the join state keyed by that task id.
+- **Fan-in** (``execution_result``): the result's ``branch_id`` names the
   branch slot and its ``task_id`` is the join key (direct ``fetch``, no scan).
-  When all branches of the task have returned, the parallel builds its payload
+  Because ``branch_id`` is preserved through the branch's entire execution
+  (base route + sequence re-seed + parallel resume), a composite/multi-step
+  branch — whose returned ``level_route`` expands to its own steps — still slots
+  under the parent-assigned id. When all branches of the task have returned, the
+  parallel builds its payload
   from the branch results (H3 flat union — the branches' outputs are folded
   into one payload; ``output_as`` collision/namespacing merging is LEG-042),
   decrements ``level`` (−1) and resumes its own level through the uniform
@@ -94,6 +99,7 @@ class ParallelAgent(AgentBase):
                 level=request.level + 1,
                 launcher_class=request.launcher_class,
                 task_id=request.task_id,
+                branch_id=branch_class,
                 payload=dict(request.payload),
             )
             logger.info(
@@ -114,6 +120,7 @@ class ParallelAgent(AgentBase):
                 "level": request.level,
                 "launcher_class": request.launcher_class,
                 "task_id": request.task_id,
+                "branch_id": request.branch_id,
                 "payload": dict(request.payload),
             },
             "slots": slots,
@@ -125,7 +132,11 @@ class ParallelAgent(AgentBase):
 
         The join key is the task id — the result's constant ``task_id`` — so the
         continuation is fetched directly (O(1)); the branch slot is named by the
-        result's ``level_route[0]``. Nothing is looked up by scanning.
+        result's ``branch_id``, which the parent assigned at fan-out and which is
+        preserved through the branch's execution (so a multi-step branch, whose
+        returned ``level_route`` expands to its own steps, still slots under the
+        parent-assigned id). Non-branch legacy results fall back to
+        ``level_route[0]``. Nothing is looked up by scanning.
         """
         record = await self._state.fetch(request.task_id)
         if record is None:
@@ -133,7 +144,7 @@ class ParallelAgent(AgentBase):
                 f"parallel {self._agent_id!r}: no fan-out for task={request.task_id}"
             )
 
-        branch = request.level_route[0] if request.level_route else ""
+        branch = request.branch_id or (request.level_route[0] if request.level_route else "")
         slot = record["slots"].get(branch)
         if slot is None:
             raise ValueError(
@@ -176,6 +187,7 @@ class ParallelAgent(AgentBase):
             level=cont["level"],
             launcher_class=cont["launcher_class"],
             task_id=cont["task_id"],
+            branch_id=cont["branch_id"],
             payload=result_payload,
         )
         await self._route_outcome(resume, result_payload)

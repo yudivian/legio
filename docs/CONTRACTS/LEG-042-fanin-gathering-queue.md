@@ -31,9 +31,11 @@ forward-only and has no fan-in (§12.3).
   `state:parallel:<class>`, keyed per task) confirms the hole resolved &
   departure gate settled; tokens of a step wait at the canonical hole until
   its predecessor resolves.
-- Dedupe per **(parallel, child task id)** — enforced by bookkeeping keyed by
-  the per-branch minted child task id (LEG-041) and by slot identity: two
-  same-named branches are two distinct holes; no inter-merge by agent name.
+- Dedupe per **(parallel, task, branch slot)** — enforced by bookkeeping keyed
+  directly on the constant `task_id` (the same across the whole fan-out, LEG-041)
+  and by slot identity from the result's `branch_id` (assigned by the parallel at
+  fan-out): two same-named branches are two distinct slots; no inter-merge by
+  agent name.
 - **Join→advance ordering (crash-safe).** The advance deposit happens **in the
   same lock section** as the join-row update, *before* the join row is deleted
   (advance-then-delete): a crash that lands between the two steps leaves a

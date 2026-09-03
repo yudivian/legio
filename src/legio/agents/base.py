@@ -173,6 +173,7 @@ class AgentBase:
                 level=request.level,
                 launcher_class=request.launcher_class,
                 task_id=request.task_id,
+                branch_id=request.branch_id,
                 payload=payload,
             )
             await self._deliver(next_class, next_request.model_dump(mode="json"))
@@ -200,6 +201,7 @@ class AgentBase:
             level=request.level,
             launcher_class=request.launcher_class,
             task_id=request.task_id,
+            branch_id=request.branch_id,
             payload=payload,
         )
         await self._deliver(request.end_of_level_queue, result.model_dump(mode="json"))
