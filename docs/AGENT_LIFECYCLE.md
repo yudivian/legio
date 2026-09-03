@@ -1189,16 +1189,44 @@ accumulator.
 
 ### 12.1 The message payload is the state: it travels in the messages/token
 
-Each agent receives the incoming `payload`, performs its processing, and
-**builds the new `payload`** that travels in the outgoing message (Schema 2)
-exactly as in the reference model (`voice-notes-api`): the message carries
-`payload` (the single container for both request and result roles) and the
-flow fields (`level_route`, `current_index`, `end_of_level_queue`, `level`,
-`launcher_class`, `task_id`, `branch_id`, `message_type`, `schema_version`). There is **no**
-store that holds per-agent/task state out of the token; the message payload
-is the state — polling-only, nothing central, nothing staged out-of-message
- for later combination. `root` lives in the FlowToken (subclassing the message),
- not in the queue message.
+Every agent is defined independently and declares, as part of its own identity
+(Schema 1), an entry contract and an output contract, each naming an alias:
+
+- `input_as` — the key under which the agent looks up its input in the payload
+- `output_as` — the key under which the agent builds its output
+
+Because each agent is defined on its own, its two aliases are its own and
+differ from those of every other agent; nothing is inferred about them. The
+message carries `payload` (the single container for both request and result
+roles) and the flow fields (`level_route`, `current_index`,
+`end_of_level_queue`, `level`, `launcher_class`, `task_id`, `branch_id`,
+`message_type`, `schema_version`). There is **no** store that holds
+per-agent/task state out of the token; the message payload is the state —
+polling-only, nothing central, nothing staged out-of-message for later
+combination. `root` lives in the FlowToken (subclassing the message), not in
+the queue message.
+
+The payload does **not** accumulate. Each agent receives the incoming payload,
+reads only what it needs under its `input_as`, performs its processing, and
+**builds its own output** that it sends under its `output_as`. Travelling from
+one agent to the next is a **re-keying step**: the key under which the producer
+sent its output is not the key the next consumer reads under, so whoever hands
+the task to the next agent re-keys the produced value under the next agent's
+`input_as`. The route (`level_route`) carries, per position, the class and its
+`input_as` — the information the re-keying needs — while `output_as` stays
+internal to its agent and never travels. The submit re-keys the client payload
+under the first agent's `input_as` before handing it over. The payload is
+therefore rebuilt at every hop, never extended.
+
+The **flow contract** (what the submit promises to the client) is anchored to
+the two ends of the main, level-1 route: its **input** is the `input_as` of the
+starting agent (the first agent of level 1), and its **output** is the
+`output_as` of the **last** agent of level 1. Every intermediate `output_as` is
+an internal bridge to the next agent only; it is neither part of the client's
+request nor of the final result. The submit re-keys the client payload under
+the starting agent's `input_as`, and the flow ends when the last agent of
+level 1 delivers its result (under that agent's `output_as`) to the final-result
+queue.
 
 ### 12.2 One inbox queue per class; every agent of the class polls it
 
