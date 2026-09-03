@@ -1,4 +1,4 @@
-# LEG-051 — Uniform parent continuation in every composite frontier (reconciled to Schema 2)
+# LEG-051 — Uniform parent continuation in every composite frontier (Schema 2)
 
 - **Status:** DRAFT (awaiting maintainer approval; reworded 2026-08-31 to the
   Schema 2 continuation model — no `client:{task_id}`-style identity)
@@ -26,10 +26,9 @@ composites.
   first to its enclosing composite's gathering queue (via its own
   `end_of_level_queue`, `level` decrementing per completed fan-in); a composite
   at `level == 1` in last position delivers the final result to the submission's
-  final-result queue (generalized end rule, addendum AV).
+  final-result queue (generalized end rule).
 - The parent continuation is the endpoint named by `end_of_level_queue` in the
-  token — assigned by the flow creator, never decided by the agent (addenda
-  AJ/AL).
+  token — assigned by the flow creator, never decided by the agent.
 
 ## Interface
 - Completion routing internal to `run()` (LEG-023).

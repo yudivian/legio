@@ -1,4 +1,4 @@
-"""Red contract tests for LEG-017 — Security contract (v1).
+"""Red contract tests for LEG-017 — Security contract.
 
 These tests fix the two-level token scheme: one shared federation token for
 node-to-node endpoints and per-system client tokens guarded by a single

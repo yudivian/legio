@@ -20,7 +20,7 @@ as an ``error`` result. There is no lease, no retry and no re-queue in the
 dispatch: the agent is a stateless poller (AGENTS.md rule 8) — nothing sleeps,
 nothing is locked, and the item is simply consumed once.
 
-No invented substrate layer exists (LEG-048): the agent speaks beaver natively,
+No invented substrate layer exists: the agent speaks beaver natively,
 exactly as castor's Manager holds a ``db`` and calls ``db.dict``/``db.queue``
 directly.
 """

@@ -1,4 +1,4 @@
-"""Shared test fixtures over native beaver (LEG-048).
+"""Shared test fixtures over native beaver.
 
 Every test that needs the substrate binds ``legio.manager`` to a fresh local
 beaver SQLite database (a temp file) and shares that single ``AsyncBeaverDB``

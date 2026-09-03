@@ -35,7 +35,7 @@ Substrate         beaver native: dict(scope) · queue(name) · lock(name)
 ## 2. Substrate (beaver native, no invented wrapper)
 
 `beaver` is the single substrate (see `docs/DEPENDENCIES.md`). legio speaks it
-**directly** — there is no `legio.primitives` abstraction layer (LEG-048): a
+**directly** — there is no `legio.primitives` abstraction layer: a
 `db = await manager.db()` handle is passed around, and agents/managers address
 beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 `db.queue` / `db.lock` directly.
@@ -67,10 +67,8 @@ beaver primitives by name, exactly as castor's Manager calls `db.dict` /
 
 ## 3. FlowToken — the contract that moves everything
 
-> **Reconciled against AGENT_LIFECYCLE §4.11 Schema 2 (Session 14).** The old
-> `route_pattern_names` / `ultimate_return_agent_id` / `client:{task_id}` /
-> `results` store are superseded by `level_route` (per-level) +
-> `current_index` + `end_of_level_queue` + `level`.
+> The FlowToken carries per-level routing only: `level_route` (this level's
+> route of classes) + `current_index` + `end_of_level_queue` + `level`.
 
 Fields (Schema 2): `schema_version`, `level_route` (the route of **this level**:
 a branch or sub-sequence — classes, not global patterns), `current_index`
@@ -84,14 +82,13 @@ roles).
 - **Who builds it**: the **submit** seeds the flow on a `main` agent in **level
   1** with `end_of_level_queue` = the **final-result queue** (there is no
   `client:{task_id}` queue and no `results` store — the final result is
-  delivered to the final-result queue, Schema 2 / addendum AL). The flow
-  creator assigns destinations; the agent never decides where to deposit
-  (addenda AJ/AL).
+  delivered to the final-result queue). The flow creator assigns destinations;
+  the agent never decides where to deposit.
 - **"Is it the flow end?" is derived from position + `level`**, not from a flag:
   end-of-sequence (`current_index == len(level_route)-1`) **and** `level == 1`
   ⇒ final (deliver to `end_of_level_queue` = final-result queue). End-of-level
   with `level > 1` ⇒ branch close (deliver to the creator's gathering queue via
-  `end_of_level_queue`). Generalized end rule (AGENT_LIFECYCLE §12.4, addendum AV).
+  `end_of_level_queue`). Generalized end rule.
 - **Parallel (branching)**: on receiving a request the parallel does not advance
   while its branches run; it fans out giving each branch its `level_route`,
   `current_index = 0`, `end_of_level_queue` = its **gathering queue**, and

@@ -1,8 +1,6 @@
-# LEG-053 — Final-result delivery semantics (reconciled to Schema 2)
+# LEG-053 — Final-result delivery semantics (Schema 2)
 
-- **Status:** DRAFT (awaiting maintainer approval; reworded 2026-08-31 to the
-  Schema 2 delivery model — the old `ultimate_return_agent_id` / `results`
-  store mechanism is removed)
+- **Status:** DRAFT (awaiting maintainer approval)
 - **Rasante:** R-5
 - **GitHub issue:** #30
 - **Source:** `docs/PLAN.md` (LEG-053); `docs/AGENT_LIFECYCLE.md` §4.11 Schema 2
@@ -22,7 +20,7 @@ is no `results` store and no `client:{task_id}` queue.
 
 ## Contract & design
 - **Flow end** = end-of-sequence (`current_index == len(level_route)-1`) AND
-  `level == 1` (generalized rule, addendum AV): deliver the final result to
+  `level == 1` (generalized rule): deliver the final result to
   `end_of_level_queue`, which the **submit** set to the **final-result queue**.
   Nothing more is routed.
 - **End-of-level with `level > 1`** = branch close: deliver an
@@ -30,9 +28,9 @@ is no `results` store and no `client:{task_id}` queue.
   set to its **gathering queue**. The parallel on fan-in completion decrements
   `level` (−1) and resumes its level.
 - The agent never decides which queue: `end_of_level_queue` is always assigned by
-  the flow creator (the submit or a parallel), addenda AJ/AL.
+  the flow creator (the submit or a parallel).
 - The composite engine chooses delivery precisely from the Schema 2 position +
-  `level` finality (LEG-011 revised).
+  `level` finality (LEG-011).
 
 ## Interface
 - Delivery-point decision internal to `run()`.

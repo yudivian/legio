@@ -1,4 +1,4 @@
-"""Integration test for the decoupled polling flow over native beaver (LEG-048).
+"""Integration test for the decoupled polling flow over native beaver.
 
 Pins the corrected, decoupled model over the real modules:
 

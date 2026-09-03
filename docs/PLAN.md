@@ -46,8 +46,8 @@ contract test file that fixes it (red before implementation). **Accept** for
 every contract issue: spec approved (journal) and its contract tests exist and
 are red for the yet-unimplemented surface.
 
-- **LEG-010** Patterns YAML schema (revised → S1): **one agent spec**
-  (`docs/AGENT_LIFECYCLE.md` §4.10/§4.11 Schema 1, LEG-010 REVISED), domain-free.
+- **LEG-010** Patterns YAML schema (Schema 1): **one agent spec**
+  (`docs/AGENT_LIFECYCLE.md` §4.10/§4.11 Schema 1), domain-free.
   A pattern is YAML data; it declares **agents** only. `type` (atomic|composite)
   × `kind` (tool|linguistic|sequence|parallel) with branch-exclusive fields,
   structurally enforced; **mandatory symmetric entry/output contracts**
@@ -79,16 +79,16 @@ are red for the yet-unimplemented surface.
     the used agent's entry contract or adds an undeclared key is rejected;
     tool/linguistic coherence violations are detectable; duplicate `output_as`
     in one scope and composition cycles are rejected.
-- **LEG-011** FlowToken & messages (v1): fields, semantics, `schema_version`,
+- **LEG-011** FlowToken & messages: fields, semantics, `schema_version`,
   root handling, delivery.
   - **Accept**: serialization/deserialization round-trip preserves all fields;
   versioned, rejected on major mismatch; finality derived from position.
-- **LEG-012** Primitives interface (v1): Queue/Registry/Lock API over beaver.
-  Superseded by the native-beaver substrate (LEG-048) — no `legio.primitives`
-  wrapper; beaver primitives are addressed directly (`docs/ARCHITECTURE.md` §2).
+- **LEG-012** Primitives interface: Queue/Registry/Lock API over native beaver.
+  No `legio.primitives` wrapper; beaver primitives are addressed directly
+  (`docs/ARCHITECTURE.md` §2).
   - **Accept**: signature conformance tests against the contract;
     queue/lock semantics observable by test.
-- **LEG-013** Tool registry interface (revised → Schema 3): the tools
+- **LEG-013** Tool registry interface (Schema 3): the tools
   declaration `available_tools: {<name>: {implementation: <dotted.path>,
   policy: {timeout, retries}}}`. Each tool is an independent, autosufficient
   resource; it does **not** declare its output capacity (consuming agents
@@ -105,15 +105,15 @@ are red for the yet-unimplemented surface.
   (per LEG-017).
   - **Accept**: submit records `task_id` + `client_id`; status scopes to the
     requesting `client_id`.
-- **LEG-015** Federation contract (v1): symmetric catalog, work-item, outbox
+- **LEG-015** Federation contract: symmetric catalog, work-item, outbox
   with versioned interfaces.
   - **Accept**: contract tests cover read-before-write, idempotency, and
     interface/schema mismatch returning 4xx.
-- **LEG-016** Naming & error conventions (v1): queue/scope namespacing,
+- **LEG-016** Naming & error conventions: queue/scope namespacing,
   namespace prefixes, error model.
   - **Accept**: a check (lint/unit) verifies every producer uses the
     `legio:queue:` prefix / `db.dict` scope and error types conform.
-- **LEG-017** Security contract (v1): two levels — shared federation token +
+- **LEG-017** Security contract: two levels — shared federation token +
   per-system client tokens with individual revocation; default all starting
   agents unless restricted; ownership of task results.
   - **Accept**: contract tests confirm wrong/missing token → 401/403; a
@@ -123,8 +123,7 @@ are red for the yet-unimplemented surface.
 ### R-2 — Walking skeleton
 
 - **LEG-020** Primitives over beaver (Queue/Registry/Lock wrapper).
-  Superseded by the native-beaver substrate (LEG-048) — the wrapper
-  implementation was deleted; the agent speaks beaver natively and directly.
+  The agent speaks beaver natively and directly — no wrapper implementation.
   - **Accept**: the AgentBase runner consumes from a native beaver queue (no
     wrapper), exercising priority ordering and namespace isolation directly
     against a temp beaver file.
@@ -155,7 +154,7 @@ are red for the yet-unimplemented surface.
   - **Accept**: submitting `transform` through the API yields its output
     in the task's final-result queue (`result:<task_id>`, read back via
     `status`); example is a green test (does not bitrot).
-- **LEG-027** Auth middleware (v1): single middleware enforcing the
+- **LEG-027** Auth middleware: single middleware enforcing the
   LEG-017 endpoint→token map for the API surface.
   - **Accept**: middleware tests match the LEG-017 §9 contract list for
     `submit`/`status`.

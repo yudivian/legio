@@ -7,7 +7,7 @@ to the step's job (a subclass ``_handle``), applies the ``monitor`` hook, and
 routes the outcome by position (Schema 2): advance to the next class of the
 level as an ``ExecutionRequestMessage`` or, at the end of the level, deposit an
 ``ExecutionResultMessage`` to the level's ``end_of_level_queue``. All substrate
-is native beaver (LEG-048); queues are addressed by name on the shared db.
+is native beaver; queues are addressed by name on the shared db.
 """
 
 from __future__ import annotations

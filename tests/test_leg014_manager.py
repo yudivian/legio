@@ -2,7 +2,7 @@
 
 These tests pin the public contract for the mini-manager: async ``submit`` /
 ``status`` over the native beaver ``tasks`` dictionary (the TaskRegistry) and
-the per-agent queues (LEG-048, no invented substrate), the root result landing
+the per-agent queues (no invented substrate), the root result landing
 on the task's final-result queue (Schema 2 ``end_of_level_queue``, read via
 ``status``), task ownership tagging (per LEG-017) and root-token semantics (per
 LEG-011). There is no ``results`` store and no per-task ``client:`` queue

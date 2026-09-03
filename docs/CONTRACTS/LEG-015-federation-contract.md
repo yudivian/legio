@@ -1,4 +1,4 @@
-# LEG-015 — Federation contract (v1)
+# LEG-015 — Federation contract
 
 - **Status:** CLOSED (implementation green, maintainer approved, issue closed)
 - **Rasante:** R-1 (contract)
@@ -7,7 +7,7 @@
 - **Depends on:** ARCHITECTURE §9 (symmetric federation)
 
 ## Goal
-Define the v1 federation contract between equal peer nodes: node registry /
+Define the federation contract between equal peer nodes: node registry /
 roster, catalog, interfaces with `schema_version`, remote work items and the
 outbox — with a single shared federation token guarding it.
 

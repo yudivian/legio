@@ -7,7 +7,7 @@ that consumes that structured output and produces the final result. They run
 through the decoupled polling model (AGENTS.md/ARCH): each agent is booted at
 node startup with its own native beaver queue, polls its own queue, and routes
 by the token — there is no central engine and nothing is loaded dynamically at
-submit time. All substrate is native beaver (LEG-048).
+submit time. All substrate is native beaver.
 """
 
 from __future__ import annotations

@@ -48,8 +48,8 @@ per (parallel, task) via the per-class bookkeeping
   is an ordinary class on the route — it is invoked like any capability agent
   through its inbox and returns along its `end_of_level_queue` (the parallel's
   gathering queue for a branch; the final-result queue at flow end) using the
-  Schema 2 flow-end rule (`current_index == len(level_route)-1` and `level`
-  bookkeeping; addendum AV). A composite may appear as a branch of a parallel or
+  Schema 2 flow-end rule (`current_index == len(level_route)-1` and   `level`
+  bookkeeping). A composite may appear as a branch of a parallel or
   a step of a sequence (LEG-051); branches are fanned out with `level + 1`, and
   on fan-in completion the parallel decrements `level` (−1) and resumes its
   level (`current_index + 1`).

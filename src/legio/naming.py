@@ -1,4 +1,4 @@
-"""`legio.naming` — identifiers and persisted names (LEG-016, LEG-048).
+"""`legio.naming` — identifiers and persisted names (LEG-016).
 
 Every identifier (node, agent, tool, task) has a validating contract. There is
 no ``client:`` family (Schema 2, addendum AL): root results land on the
@@ -6,7 +6,7 @@ submit-created final-result queue, addressed by ``result_queue_key``.
 
 The only persisted namespaces legio names directly are the per-agent queue
 ``legio:queue:<agent_id>`` and the per-task final-result queue
-``legio:queue:result:<task_id>`` (LEG-048). Flow results always travel in the
+``legio:queue:result:<task_id>``. Flow results always travel in the
 message payload. Everything else is beaver's native naming.
 """
 
@@ -23,7 +23,7 @@ QUEUE_NAMESPACE = "legio:queue:"
 
 
 def queue_key(agent_id: str) -> str:
-    """Full namespaced beaver queue name for an agent (LEG-048)."""
+    """Full namespaced beaver queue name for an agent."""
     return f"{QUEUE_NAMESPACE}{agent_id}"
 
 

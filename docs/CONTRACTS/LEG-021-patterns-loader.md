@@ -1,18 +1,10 @@
 # LEG-021 — Patterns loader (Schema 1)
 
-- **Status:** REVISED 2026-09-01 (Schema 1 — one agent spec; supersedes the v1
-  CLOSED contract of the same name)
+- **Status:** APPROVED (Schema 1 — one agent spec)
 - **Rasante:** R-2
 - **GitHub issue:** #13
 - **Source:** `docs/PLAN.md` (LEG-021)
 - **Depends on:** LEG-010 (S1 schema), LEG-070 (invalidation)
-
-> **Note on implementation state.** The current `legio.patterns` loader is still
-> the v1 loader (`kind: main|atomic|composite`, `tool_type`, `tool: bool`,
-> `input_mapping`, auto-naming / self-execution / queue-name materialization).
-> This document is the **Schema 1 target contract** for the loader migration;
-> the v1 code is pending migration, not yet conformant. Nothing here claims the
-> v1 code already conforms.
 
 ## Goal
 Load and validate patterns from YAML **Schema 1** into typed in-memory agent

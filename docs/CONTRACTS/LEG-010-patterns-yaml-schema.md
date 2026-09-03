@@ -1,16 +1,15 @@
 # LEG-010 — Patterns YAML schema (S1)
 
-- **Status:** REVISED 2026-08-31 (S1 — one agent spec; reconciled to Schema 1
-  after the S4 simulation; supersedes the v1 CLOSED contract of the same name)
+- **Status:** APPROVED (S1 — one agent spec; see `docs/AGENT_LIFECYCLE.md`
+  §4.10/§4.11)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #4
 - **Source:** `docs/PLAN.md` (LEG-010)
-- **Depends on:** H1–H4 findings in `docs/VALIDATIONS/single-node-model.md`;
-  the S1 design thread (session addenda, JOURNALS 2026-08-30 md end + 2026-08-31)
+- **Depends on:** H1–H4 findings in `docs/VALIDATIONS/single-node-model.md`
 
 ## Goal
 
-Define the v2 (S1) YAML schema for patterns. Patterns are **YAML data** (rule
+Define the S1 YAML schema for patterns. Patterns are **YAML data** (rule
 7) defining **agents**: one single agent specification shared by every agent
 (`atomic`|`composite` × `tool`|`linguistic`|`sequence`|`parallel`), with
 **mandatory symmetric entry/output contracts** (full triples on every agent, no
@@ -19,20 +18,20 @@ dotted.path | literal}` — no `{from:}`/`bind:`/`emit:`/`children`), chain-wide
 composability verification by **contract compatibility**, reuse of any
 definition by `pattern:` and by repetition (position), and `main` as a root
 capability. The full normative statement lives in `docs/AGENT_LIFECYCLE.md`
-§4.10 (reconciled) / §4.11 Schema 1.
+§4.10 / §4.11 Schema 1.
 
 ## Scope
 
 - **In scope:** the one agent spec (§4.10.1); branch-exclusive structural
   enforcement (no inference); mandatory symmetric contracts with
   `input_as`/`output_as` (the anti-convention rule, §4.10.2) and contract
-  compatibility as the composition relation (addendum AY); the terse call
+  compatibility as the composition relation; the terse call
   vocabulary and chain-wide resolution (§4.10.3); interior ↔ contract coherence
   (tool ↔ code signature; linguistic prompt variables ↔ `input_schema`;
   linguistic `output_schema` enforced at runtime) §4.10.4; reuse of every
   definition by `pattern:` / repetition and encapsulation (§4.10.5); composite
   output without `emit:` (the combination is the agent's implementation,
-  §4.10.6 / addendum AT); `main` as root capability not position (§4.10.7);
+  §4.10.6); `main` as root capability not position (§4.10.7);
   load-time composability verification (§4.10.8).
 - **Out of scope:** the tool registry + policy (Schema 3 / `available_tools`);
   the message/token envelope (Schema 2); materialization artifacts (queue
@@ -109,7 +108,7 @@ parallel: [ ... ]                       # kind: parallel (children bind only fro
   cycles rejected at catalog load.
 - **Composite output (no `emit:`):** how a composite combines its children's
   results into its declared `output_as`/`output_schema` is **its
-  implementation** (addendum AT); there is no "last child renamed" and no
+  implementation**; there is no "last child renamed" and no
   `emit:` map. Parallel children bind only from the composite `input_as` (serial
   dependencies nest as `sequence` inside a branch).
 - **`main`:** root capability (submittable, seeds the flow in level 1 with

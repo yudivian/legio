@@ -1,4 +1,4 @@
-"""Contract tests for LEG-016 — Naming & errors (v1).
+"""Contract tests for LEG-016 — Naming & errors.
 
 These tests define the public contract for identifier validation and the typed
 error taxonomy. The modules imported here (``legio.naming``, ``legio.errors``)

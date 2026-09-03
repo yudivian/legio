@@ -1,4 +1,4 @@
-# LEG-017 — Security contract (v1)
+# LEG-017 — Security contract
 
 Status: **CLOSED (implementation green, maintainer approved, issue closed)**.
 Applies to R-8 (runtime server) and R-9 (federation). Implemented by a single

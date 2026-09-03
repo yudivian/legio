@@ -27,7 +27,7 @@ R-3 (Atomics) **shipped**, on the Schema 2 engine. Done:
   `end_of_level_queue`/`level`), **S3** the `available_tools`
   declaration (`implementation` + `policy`).
 - R-2 (Walking skeleton): native beaver substrate (queues/dicts/locks spoken
-  directly, no invented wrapper layer — LEG-048), flow messages + token
+  directly, no invented wrapper layer), flow messages + token
   (LEG-011/023), mini-manager `submit`/`status` over the final-result queue
   (LEG-014/024), federation + naming + errors + security (LEG-015/016/017),
   REST worker surface (LEG-025), E2E `transform` example (LEG-026), auth

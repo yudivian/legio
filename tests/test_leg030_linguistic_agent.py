@@ -7,7 +7,7 @@ validated against the pattern's declared ``output_model``, and builds the new
 payload, which the base routes by position (Schema 2). The step's state travels
 in the messages (AGENT_LIFECYCLE §12.1): nothing is staged out-of-message.
 Failures from lingo are never silent: an error result is deposited instead.
-All substrate is native beaver (LEG-048).
+All substrate is native beaver.
 """
 
 from __future__ import annotations

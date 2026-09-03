@@ -1,17 +1,11 @@
 # LEG-013 — Tool registry interface (Schema 3)
 
-- **Status:** REVISED 2026-09-01 (Schema 3 — `available_tools` tools declaration;
-  supersedes the v1 CLOSED contract of the same name)
+- **Status:** APPROVED (Schema 3 — `available_tools` tools declaration; see
+  `docs/AGENT_LIFECYCLE.md`)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #7
 - **Source:** `docs/PLAN.md` (LEG-013)
 - **Depends on:** ARCHITECTURE §5, `docs/AGENT_LIFECYCLE.md` §4.11 Schema 3
-
-> **Note on implementation state.** The current `legio.tools` registry is still
-> the v1 registry (`tool_type` + pydantic `input_schema`/`output_schema`). This
-> document is the **Schema 3 target contract** for when the registry is
-> migrated (per the S1/S3 migration in `docs/PLAN.md`); the code migration is
-> pending, not yet green. Nothing here claims the v1 code already conforms.
 
 ## Goal
 Define how tools are **declared and loaded** (Schema 3): the consumer injects
@@ -25,7 +19,7 @@ independent, autosufficient resource that the flow can bind to.
 - **Out of scope:** the tool implementations themselves (consumer side); the
   ToolAgent execution path (LEG-022); the loading mechanics (import vs
   programmatic registration) and the async execution mechanism — these are
-  explicitly **not** fixed by the schema (addendum O / Session 13) and are
+  explicitly **not** fixed by the schema and are
   decided at implementation.
 
 ## Contract & design

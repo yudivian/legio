@@ -1,8 +1,8 @@
-"""`legio.manager` — the mini-manager (LEG-024) over native beaver (LEG-048).
+"""`legio.manager` — the mini-manager (LEG-024) over native beaver.
 
 The mini-manager owns task submission and status lookup. It is async and
 polling-only (AGENTS.md rule 8): it never blocks or sleeps. All state lives on
-native beaver primitives (LEG-048, no invented substrate layer): the ``tasks``
+native beaver primitives (no invented substrate layer): the ``tasks``
 dictionary and the per-agent queues ``db.queue("legio:queue:<agent_id>")``.
 
 Task submission (Schema 2) seeds the starting pattern's level-1 route with an
@@ -114,7 +114,7 @@ def agent_queue(agent_id: str) -> Any:
 
     This is how any replica reaches an agent's queue: ``db.queue(...)`` maps the
     agent id onto a persistent, namespaced queue so an agent can poll it
-    (LEG-048, ARCH §7.1, polling-only). The queue is created lazily by beaver.
+    (ARCH §7.1, polling-only). The queue is created lazily by beaver.
     """
     return _current().queue(queue_key(agent_id))
 

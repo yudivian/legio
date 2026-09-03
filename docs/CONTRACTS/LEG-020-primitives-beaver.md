@@ -1,54 +1,65 @@
-# LEG-020 — Primitives over beaver (implementation)
+# LEG-020 — Native beaver substrate
 
-- **Status:** SUPERSEDED (decision: *no invented substrate layer* — the
-  beaver-backed wrapper was deleted; agents and the Runtime now call
-  beaver natively, LEG-048)
+- **Status:** APPROVED (native-beaver substrate — agents and the Runtime speak
+  beaver directly; see `docs/ARCHITECTURE.md` §2)
 - **Rasante:** R-2
 - **GitHub issue:** #12
 - **Source:** `docs/PLAN.md` (LEG-020)
-- **Depends on:** LEG-012 (interface), LEG-011 (message types)
-
-> **Superseded by** the native-beaver substrate (LEG-048): the "combustion" of
-> the three primitives *on top of* beaver is gone because beaver itself provides
-> them. Queue/dict/lock semantics, namespacing and async-only are exercised
-> directly in the AgentBase/Runtime suites against a real beaver file (see
-> `docs/ARCHITECTURE.md` §2 and `tests/conftest.py`). The dispatch is
-> polling-only and carries no lease: an item is popped once and routed (rule 8).
+- **Depends on:** LEG-011 (message types)
 
 ## Goal
-Implement Queue, Registry and Lock on top of beaver (Redis), satisfying the
-LEG-012 contract.
+
+Pin how legio consumes the beaver substrate: there is no legio-owned
+`primitives` abstraction layer. `beaver` provides the persistent
+queue/dict/lock primitives, and legio addresses them directly by name
+(`db.queue`, `db.dict`, `db.lock`) exactly as castor's Manager does.
 
 ## Scope
-- **In scope:** beaver-backed combustion of the three primitives, lazy
-  connection, namespacing.
-- **Out of scope:** anything above the primitives.
+
+- **In scope:** the native beaver semantics legio relies on — queue (priority,
+  destructive pop), dict (per-scope registry), lock (TTL + renew), namespacing,
+  async-only — and how the AgentBase/Runtime suites exercise them.
+- **Out of scope:** anything above the substrate.
 
 ## Contract & design
-- **Queue:** sorted-set based (score = priority epoch) with destructive `get`
-  (an item is popped once and routed — no lease, no schedule gate); dedup on
-  push (idempotency key for LEG-093).
-- **Registry:** persistent hash/key-space per scope with TTL on volatile
-  entries.
-- **Lock:** beaver lock with TTL + `renew`, used only where genuine mutual
-  exclusion over a shared key is required.
-- Namespacing strictly per LEG-012; all calls async.
+
+- The agent's queue is a native beaver queue addressed by name:
+  `db.queue("legio:queue:<agent>")`. `get(block=False)` pops destructively
+  (`IndexError` when empty); an item is popped once and routed — no lease, no
+  schedule gate (rule 8, polling only).
+- Registries are native beaver dicts addressed by scope (`db.dict(scope)`):
+  `tasks` (TaskRegistry), `gates`, `catalog`, `outbox`, `semaphore`.
+- A native beaver lock (`db.lock(...)`) with TTL + `renew` is used only where
+  genuine mutual exclusion over a shared key is required — not as a per-dispatch
+  task lease.
+- Namespacing: the sole legio-invented name is `legio:queue:<agent>`; dict
+  scopes are beaver dict scopes. All calls are async.
+- The dispatch is stateless and polling-only: an item is popped once and routed
+  (rule 8). Failures are never silent (rule 9).
 
 ## Interface
-- The LEG-012 protocols.
+
+- Native beaver asynchronous primitives (`db.queue`, `db.dict`, `db.lock`) as
+  consumed by `AgentBase` and the Runtime — there is no legio wrapper API.
 
 ## Acceptance criteria
+
 From `docs/PLAN.md` (LEG-020), verbatim:
-- All LEG-012 conformance tests pass in green against real beaver; priority
-  ordering and namespace isolation behave as specified.
+- The AgentBase runner consumes from a native beaver queue and a temp beaver
+  file, exercising priority ordering and namespace isolation directly.
 
 ## Tests
-- Conformance suite (red-first from LEG-012) run against beaver; queue/lock semantics.
+
+- Conformance suite against real beaver (temp file): queue priority/ordering,
+  destructive pop, dict scope isolation, lock semantics — via the AgentBase/Runtime
+  suites (`tests/conftest.py`).
 
 ## Validation case
+
 - Substrate for every later example.
 
 ## Definition of done
+
 - All acceptance criteria met by running checks.
 - Maintainer approval recorded; the maintainer closes the GitHub issue.
 - Journal entry appended.

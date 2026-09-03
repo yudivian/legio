@@ -11,7 +11,7 @@ position: advance to the next class of the level, or deposit an
 state travels in the messages (AGENT_LIFECYCLE §12.1): nothing is staged
 out-of-message. Schema/signature failures on either edge are never silent:
 the failure is visible in the outcome. All state lives on native beaver
-primitives (LEG-048).
+primitives.
 """
 
 from __future__ import annotations

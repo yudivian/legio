@@ -3,7 +3,7 @@
 The REST surface exposes ``POST /submit`` and ``GET /status/{task_id}`` that
 proxy the mini-manager, enforcing ownership (a foreign client's status request
 is denied). Uses the ASGI transport with an async client (httpx) to exercise the
-real FastAPI routes. All substrate is native beaver (LEG-048), bound via the
+real FastAPI routes. All substrate is native beaver, bound via the
 ``beaver_db`` fixture.
 """
 

@@ -143,7 +143,7 @@ Verbs map to the axes:
 | **disable** | close entry: does not accept new items; **keeps draining** pending work (policy A) | the agent stops polling (pauses); its class and queue are untouched; other agents keep running |
 | **destroy** | **armageddon:** removes the class + its queue + **all** its instances | the agent dies (that instance only) |
 
-### 4.1 Policy A — "disable the class" (confirmed)
+### 4.1 Policy A — "disable the class"
 
 Disabling a class means:
 
@@ -153,7 +153,7 @@ Disabling a class means:
 
 Disabling a class does **not** pause its instances; they keep draining.
 
-### 4.2 Enable-by-dependencies (creation rule, confirmed)
+### 4.2 Enable-by-dependencies (creation rule)
 
 A class is enabled at creation **only if all of its dependencies exist and are
 enabled**. Otherwise (a dependency is missing or disabled) the class is created
@@ -167,7 +167,7 @@ enabled**. Otherwise (a dependency is missing or disabled) the class is created
 - Instances inherit the state of their class: if the class is born disabled, its
   instances are born disabled too.
 
-### 4.3 Pool as a creation parameter (confirmed)
+### 4.3 Pool as a creation parameter
 
 Creating a class takes the **pool size (number of instances) as a parameter**
 (default `pool_size=1`):
@@ -183,7 +183,7 @@ Creating a class takes the **pool size (number of instances) as a parameter**
 "Create class" is separated from "bring up instances": the bootstrap does both
 (passing each class's `pool_size`), the dynamic operator may do either.
 
-### 4.4 Corollary — no instances ⇒ class disabled (confirmed)
+### 4.4 Corollary — no instances ⇒ class disabled
 
 - **If a class has no instances, the class is automatically disabled** (there is
   nobody to process).
@@ -220,7 +220,7 @@ Creating a class takes the **pool size (number of instances) as a parameter**
   (spec), its queue, and **all** its instances, irreversibly. It is an explicit,
   separate, hard operation — distinct from "destroying all instances".
 
-### 4.6 Destroy parameter: `now` / `drain` (confirmed)
+### 4.6 Destroy parameter: `now` / `drain`
 
 Destruction always happens **in hot** (never in the bootstrap) and is always an
 armageddon of the class. It takes a parameter:
@@ -231,7 +231,7 @@ armageddon of the class. It takes a parameter:
   its queue to drain before removing spec + queue + instances). Preserves no-loss.
   **`drain` is the default.**
 
-**`drain` semantics (confirmed 2026-08-30):** the queue stays in place until it is
+**`drain` semantics:** the queue stays in place until it is
 empty; the guarantee is that it **does not grow** (the entry gate is closed, so
 nothing new enters); if everything works normally it will eventually finish. A
 **large timeout** guards the wait as a safety valve (`drain` and the timeout must
@@ -244,7 +244,7 @@ By default, destroying all instances of a class only disables it (it persists);
 the destructive armageddon (removing the class entirely) is the explicit,
 separate operation above.
 
-### 4.7 The YAML and the local cache (confirmed)
+### 4.7 The YAML and the local cache
 
 - **Creating / re-creating a class is always driven by its YAML spec** (the
   spec shape is defined in §4.10).
@@ -267,7 +267,7 @@ separate operation above.
   destroy take only the class name (plus the `now`/`drain` parameter for
   destroy); they never use the YAML.
 
-### 4.8 The `AgentRegistry` (confirmed) and who does what
+### 4.8 The `AgentRegistry` and who does what
 
 The `AgentRegistry` owns the **runtime state of agent classes** — the live
 catalog and the runtime YAML cache (§0, §4.7). It is the **posterior mirror**:
@@ -289,7 +289,7 @@ orchestrated by the `Runtime`. Its operations fall into two groups:
 | `record_instance(class_name, instance_id, *, state)` | One entry per agent actually brought up **and running** — the agent's own identity, recorded after the fact; never a `pool_size` promise. Count = sum of real facts. |
 | `set_class_state(name, enabled\|disabled)` | A class state change that actually took effect. Unknown class → error (rule 9). |
 | `set_instance_state(class_name, instance_id, enabled\|disabled)` | An instance activity change that actually took effect (the pause/resume transitions, §5.3/§5.5). Unknown instance → error (rule 9). |
-| `remove_instance(class_name, instance_id)` | An instance whose agent was actually destroyed (confirmed terminal, §5.7/§5.8). |
+| `remove_instance(class_name, instance_id)` | An instance whose agent was actually destroyed (terminal, §5.7/§5.8). |
 | `remove_class(name)` | The class entry of a class whose spec and queue were actually destroyed (armageddon); the YAML stays cached (§4.7). |
 
 **Identity and ordering rules (mirror):**
@@ -398,11 +398,9 @@ Also a thin wrapper — no extra logic.
 
 ### 4.10 The pattern schema (S1) — one agent spec, mandatory contracts, terse call
 
-> **Reconciled against §4.11 Schema 1 (Session 14).** The old draft's `children`,
-> `emit`, `bind` and `{from:}` vocabulary is **not** approved (maintainer
-> ruling). This section now states the reconciled S1: `sequence`/`parallel`,
-> terse tool `parameters`, mandatory symmetric contracts, no magic composition.
-> §4.11 Schema 1 is the compact normative reference; this section expands it.
+> This section states the S1 pattern schema: `sequence`/`parallel`, terse tool
+> `parameters`, mandatory symmetric contracts, no magic composition. §4.11
+> Schema 1 is the compact normative reference; this section expands it.
 
 A pattern is **YAML data** (rule 7) defining **agents** — the only first-class
 notion of this design. There is **one** agent specification shared by every
@@ -465,7 +463,7 @@ Every agent — atomic or composite, tool, linguistic, sequence or parallel —
 declares an **entry contract** (what it consumes: `input_as`, `input_type`,
 `input_schema`) and an **output contract** (what it produces: `output_as`,
 `output_type`, `output_schema`). The full triples are **mandatory for every
-agent**, with strict symmetry and no exceptions (addendum T #1). `input_type`/
+agent**, with strict symmetry and no exceptions. `input_type`/
 `output_type` ∈ {text, json, binary} decide **where a value lives**: text → the
 payload *is* the string; json → values are fields of the declared schema;
 binary → the payload is the blob (or its reference). A `text` payload has no
@@ -474,8 +472,7 @@ schema. Schemas validate at the boundary (rule 9), and the contracts make
 used agent's entry contract, and every agent's output becomes a producer for
 its scope's chain.
 
-**Composition is contract compatibility, not exact subset (maintainer
-precision, addendum AY).** The relationship between a step's input and a
+**Composition is contract compatibility, not exact subset.** The relationship between a step's input and a
 (previous) step's output is **not** that one is an *exact subset* of the other.
 It is **contract compatibility**: the consuming step's entry contract must be
 *satisfiable* by what the producer's output guarantees — the fields it consumes
@@ -523,7 +520,7 @@ are load errors.
   full inline nodes (must carry `name`). A sequence lists the ordered classes of
   its level; a parallel lists its branches. There is no `emit:` and no
   "last child renamed": **how a composite combines its children's results into
-  its own output is the agent's implementation** (P-A ruling, addendum AT), and
+  its own output is the agent's implementation**, and
   the declared `output_as`/`output_schema` is the contract that implementation
   must satisfy.
 
@@ -539,7 +536,7 @@ position** — distinguished by `current_index` — unless inside its own
 definition (cycle → infinite recursion, rejected at catalog load). Reuse is
 constrained by **contract composability** (§4.10.2): repeated identical steps
 only chain if each one's entry contract is satisfiable by the previous output,
-so the apparent ``output_as`` collision dissolves (addendum AX). The used
+so the apparent ``output_as`` collision dissolves. The used
 agent's contract is kept: keys are a subset of its declared properties,
 `required` covered unless a `default` exists, extras are load errors; the used
 agent's `output_as` becomes a producer for later siblings.
@@ -554,7 +551,7 @@ containing itself) are detected at catalog load and rejected.
 
 A composite declares its output contract (`output_as`/`output_type`/
 `output_schema`) up front. **How** it produces that output from its children's
-results is **the agent's implementation** (P-A ruling, addendum AT) — there is
+results is **the agent's implementation** — there is
 no `emit:` map and no "last child renamed" rule. A sequence runs its ordered
 classes and its implementation assembles the declared output; a parallel fans
 out to its branches, gathers their results on its gathering queue, and its
@@ -569,7 +566,7 @@ dependency between branches is expressed as a `sequence` nested inside a branch
 
 `main: true` marks an agent as a valid `submit` entry. At submit the flow is
 seeded on the `main` agent in **level 1** with `end_of_level_queue` set to the
-**final-result queue** (Schema 2; addendum AM). A `main` agent may also appear
+**final-result queue** (Schema 2). A `main` agent may also appear
 in the middle of another DAG (`pattern: <name>`): there it executes its
 functionality as part of the enclosing flow and advances, returning to the
 client only when the flow started at it. A catalog may declare several `main`
@@ -590,18 +587,14 @@ load** (rule 9; LEG-071 dry-run) — nothing silently miswired ever runs.
 
 ## 4.11 The three schemas — current reviewed state (S1 pattern · S2 token · S3 tools)
 
-> **Status.** This section records the schemas **as they stand now** (Session 14,
-> reviewed in-session, journals 2026-08-31 addenda AB–AP). They are the agreed
-> vocabulary and are expected to be **revised after the S4 simulation** if it
-> exposes defects. `§4.10` above has been **reconciled** against this section and
-> the addenda K/M/N (no more `emit`/`bind`/`children`). The S4 simulation (run
-> 1–4, addenda AS–AZ) exposed **no remaining problems**; the vocabulary below
-> stands validated. English-only, per AGENTS.md.
+> **Status.** This section records the schemas **as they stand now** — the
+> agreed vocabulary, validated by the S4 simulation (no remaining problems),
+> and consistent with §4.10 above. English-only, per AGENTS.md.
 
 ### Schema 1 — the agent pattern (S1)
 
 One spec for every agent, symmetric mandatory contracts. Approved vocabulary
-(addenda K/L/M/N; `emit`/`bind`/`children` are NOT approved):
+(`emit`/`bind`/`children` are NOT approved):
 
 ```yaml
 type: atomic | composite        # root discriminator, exactly these two
@@ -626,22 +619,22 @@ parallel: [ ... ]               # kind: parallel (children bind only from input_
 
 - Contract of entry and output are **mandatory for every agent** — atomic and
   composite, tool/linguistic/sequence/parallel — the full triples
-  (`as`/`type`/`schema`), strict symmetry, no exceptions (addendum T #1).
+  (`as`/`type`/`schema`), strict symmetry, no exceptions.
 - Cross `type × kind`, missing `kind`, both work-keys on one atomic,
   `parallel`+`sequence` together, schema on a `text` type, tool without `tool`,
   linguistic without `prompt`, prompt+tool — rejected at parse.
 - **Reuse:** a definition is unique; each use in a composite is a distinct node.
   Same-class agents may appear more than once in a flow (by position), unless in
   their own definition (cycle → infinite recursion, rejected at catalog load,
-  §4.10.5 / addendum AE).
+  §4.10.5).
 - **ToolAgent `parameters` is the CALL, terse:** `parameters: {arg: dotted.path
   | literal}` — no `{from:}`, `{value:}`, `{default:}`; the default lives in the
   code's signature and is never written. The tool names its resource via
   `tool: <name>`; the name must exist in Schema 3's `available_tools`.
 
-### Schema 2 — the token/message that travels between class queues (S4-proposed)
+### Schema 2 — the token/message that travels between class queues
 
-Settled token fields (addenda AG–AM). No `next_queue` — the next step is derived
+Settled token fields. No `next_queue` — the next step is derived
 by position. No results store — the final destination is the final-result queue.
 
 | Field | Role |
@@ -673,14 +666,14 @@ by position. No results store — the final destination is the final-result queu
 - **Parallel as root:** submit passes its sequence as level 1 with
   `end_of_level_queue` = final-result queue; branches run at level 2 with
   gathering; after fan-in the parallel advances its level-1 sequence with the
-  submit's final-result queue (addendum AM).
+  submit's final-result queue.
 - **`root`** lives in the FlowToken (subclassing the message), not in the queue
   message; `end_of_level_queue` = final-result queue is the store-free return
   (there is no "results store"). The agent does not decide where to deposit —
   who creates the flow assigns the class queue; the information lives always in
-  the token (addenda AJ/AL).
+  the token.
 
-### Schema 3 — the tools declaration (S2)
+### Schema 3 — the tools declaration
 
 Each tool is an independent, autosufficient resource; it does **not** know which
 agents use it (no coupling). The tool identifier is the explicit `available_tools`
@@ -694,7 +687,7 @@ available_tools:
 ```
 
 - A tool does **not** declare its output capacity — the consuming agents
-  declare the output via `output_as`/`output_schema` (S2 ruling).
+  declare the output via `output_as`/`output_schema`.
 - Static (load) verification is the flow-against-itself; verification against the
   tool (its signature/parameters) is execution-time (dynamically loaded).
 
@@ -897,7 +890,7 @@ point between them. An **agent is not a task**: the catalog records the agent by
 its own identity; the TM task that executes its loop keeps a separate `task_id`
 (§4.8).
 
-**Invariant — no orphaned jobs (confirmed 2026-08-30).** A business task is
+**Invariant — no orphaned jobs.** A business task is
 always traceable in the Runtime registries (`tasks` / and the TM's `tm_tasks`):
 it either reaches a
 terminal state or stays visibly pending. The only deliberate-loss path is
@@ -994,8 +987,7 @@ decides them and records them in the `AgentRegistry` **after** each is confirmed
 **What the TaskManager does NOT own** (decoupling boundaries):
 - The **entry gate of a class queue** (what §0/§5.6/§5.8/§6 name "dispatch"):
   submitting into a disabled class is refused by the **Runtime** (it consults
-  the catalog); business submits never pass through the TM. (Resolved — see §10,
-  open decision 3.)
+  the catalog); business submits never pass through the TM (see §10).
 - The DAG, routing, delivery, results: all Runtime/agent concern.
 - The AgentRegistry: the TM never records anything in it.
 
@@ -1099,29 +1091,29 @@ No disablement-history is recorded; the live catalog is what guides decisions.
 
 ### Open decisions
 
-1. **"Pending work" boundary / drain semantics (resolved 2026-08-30 by §4.6):**
+1. **"Pending work" boundary / drain semantics:**
    `now` destroys everything including **pending** items (the
    operator consciously accepts the loss); `drain` waits for the queue to empty —
    in-flight steps run to completion, nothing new enters, and the
    drain completes. The queue does **not** grow, termination is eventual when
    things work, and a **large timeout** is the safety valve (visible failure on
    expiry — rule 9). No further boundary to decide.
-2. **Destroy parameter default (resolved 2026-08-30):** the default is **`drain`**
+2. **Destroy parameter default:** the default is **`drain`**
    (`--mode`/`{mode}` optional in CLI/HTTP, §4.8; §5.8). `now` is the explicit
    escalation. A `drain` that never ends is an operator-visible problem, never a
    silent hang (large timeout → visible failure, §4.6).
-3. **Entry gate / dispatch ownership (resolved 2026-08-30):** the class entry
+3. **Entry gate / dispatch ownership:** the class entry
    gate belongs to the **Runtime** — its submit path rejects new items against
    the catalog when the class is disabled. It is not a `TaskManager` fact (the
    TaskManager never sees business submissions, and there is no open/closed
    attribute on a beaver queue to "close"). §0/§5/§5.6/§5.8/§6 wording updated
-   accordingly (reconciled thread 3).
-4. **Dispatch has no lease or reaper (resolved 2026-09-02):** the agent's
+   accordingly.
+4. **Dispatch has no lease or reaper:** the agent's
    polling loop is not lease/supervised. `get()` is destructive/atomic: an item
    is popped once and routed, a crashed executor is surfaced visibly and never
    re-run (rule 8 polls, never pushes; rule 9 never silent). No reaper, no
    `executor_died` recovery, no retry/DLQ — those invented mechanism are removed.
-5. **TaskManager scope names and placement (confirmed 2026-08-30):** module
+5. **TaskManager scope names and placement:** module
    **`legio.taskmanager`**; class **`TaskManager`**; beaver scopes, all under the
    `tm_` prefix: `tm_tasks` (dict), `tm_scheduled` (queue), `tm_pending` (queue),
    `tm_control` (dict). Normative in `legio.naming`
@@ -1177,12 +1169,10 @@ No disablement-history is recorded; the live catalog is what guides decisions.
 
 ## 12. Execution mechanics and the lifecycle × execution handshake
 
-> **Reconciled against §4.11 Schema 2 (Session 14).** The old wording
-> (`route_pattern_names`, `ultimate_return_agent_id`, "results store",
-> `client:{task_id}` root return) is superseded. The token now carries
-> `level_route` (per-level), `current_index`, `end_of_level_queue`, `level`,
-> `launcher_class`; the destination is by position + `level`, and the final
-> result goes to the **final-result queue** (no store, no `client:` return).
+> The token carries `level_route` (per-level), `current_index`,
+> `end_of_level_queue`, `level`, `launcher_class`; the destination is by position
+> + `level`, and the final result goes to the **final-result queue** (no store,
+> no `client:` return).
 
 This section specifies the **runtime flow of a task** and how it meets the
 class lifecycle (create / enable / disable / destroy). It is the execution
@@ -1200,11 +1190,10 @@ exactly as in the reference model (`voice-notes-api`): the message carries
 `payload` (the single container for both request and result roles) and the
 flow fields (`level_route`, `current_index`, `end_of_level_queue`, `level`,
 `launcher_class`, `task_id`, `message_type`, `schema_version`). There is **no**
-store that holds per-agent/task state out of the token (see
-`docs/JOURNALS/2026-08-30.md`, execution-mechanics thread); the message payload
+store that holds per-agent/task state out of the token; the message payload
 is the state — polling-only, nothing central, nothing staged out-of-message
-for later combination. `root` lives in the FlowToken (subclassing the message),
-not in the queue message (Schema 2 / addendum AJ).
+ for later combination. `root` lives in the FlowToken (subclassing the message),
+ not in the queue message.
 
 ### 12.2 One inbox queue per class; every agent of the class polls it
 
@@ -1269,25 +1258,24 @@ advance(request) for the current step (level_route[current_index]):
           deposit an ExecutionResultMessage(output|error) to end_of_level_queue
 ```
 
-This is the **generalized end rule** (addendum AV): an agent is the flow's end
+This is the **generalized end rule**: an agent is the flow's end
 when it is the last of its sequence AND `level == 1`, regardless of whether it
 is a sequence step, an atomic, or a parallel — not by any `client:` store
 mechanism. `end_of_level_queue` is assigned by the flow creator (the **submit**
 sets it to the final-result queue; a **parallel** sets it to its own gathering
-queue for its branches); the agent never decides the destination (Schema 2 /
-addenda AJ/AL).
+queue for its branches); the agent never decides the destination (Schema 2).
 
 **Parallel fan-out.** On receiving its request, a parallel does **not** advance
 while its branches run. It fans out giving each branch its own `level_route`,
 `current_index = 0`, `end_of_level_queue` = the parallel's **gathering queue**,
 and `level + 1`. Fan-in results land in the gathering queue and the parallel
 **builds its payload** from the branch results (projecting each under its
-`output_as`; collisions resolved via `output_as` namespacing — H3).
+`output_as`; collisions resolved via `output_as` namespacing).
 On **fan-in completion** the parallel decrements `level` (−1) and resumes its
 own level (`current_index + 1` → next of its level), with `end_of_level_queue`
 the one its creator supplied. Parallel-as-root (submit as the parallel's creator)
 passes the parallel's sequence as level 1 with `end_of_level_queue` =
-final-result queue (addendum AM).
+final-result queue.
 
 **Where does "am I finished/fan-in complete" live?** In the per-class
 **gathering bookkeeping** of the parallel (`state:parallel:<class>`, keyed by

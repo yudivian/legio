@@ -1,7 +1,6 @@
-# LEG-011 — FlowToken & messages (Schema 2, revised)
+# LEG-011 — FlowToken & messages (Schema 2)
 
-- **Status:** REVISED 2026-08-31 (reconciled to Schema 2 after the S4
-  simulation; supersedes the v1 CLOSED contract of the same name)
+- **Status:** APPROVED (Schema 2 — see `docs/ARCHITECTURE.md` §3)
 - **Rasante:** R-1 (contract)
 - **GitHub issue:** #5
 - **Source:** `docs/PLAN.md` (LEG-011); `docs/AGENT_LIFECYCLE.md` §4.11 Schema 2
@@ -17,7 +16,7 @@ including `schema_version`, the per-level token fields and the flow-end rule.
   end-of-level / flow-end rule, `end_of_level_queue` semantics (no store, no
   `next_queue`).
 - **Out of scope:** authoring logic (the submit); serialization of payloads
-  themselves; the `results` store / `client:{task_id}` return (removed).
+  themselves.
 
 ## Contract & design
 - FlowToken fields (Schema 2):
@@ -38,7 +37,7 @@ including `schema_version`, the per-level token fields and the flow-end rule.
   to class `level_route[current_index+1]` (by position, no `next_queue` field).
 - **End-of-level:** `current_index == len(level_route)-1` → deliver to
   `end_of_level_queue`.
-- **Flow end (generalized rule, addendum AV):** end-of-sequence AND `level == 1`
+- **Flow end (generalized rule):** end-of-sequence AND `level == 1`
   ⇒ final: deliver the final result to `end_of_level_queue` (= the final-result
   queue set by the submit). Nothing more is routed. It holds regardless of the
   agent type (sequence step, atomic, or parallel-at-level-1).
@@ -52,12 +51,12 @@ including `schema_version`, the per-level token fields and the flow-end rule.
 - **Parallel as root:** submit passes its sequence as level 1 with
   `end_of_level_queue` = final-result queue; branches run at level 2 with
   gathering; after fan-in the parallel advances its level-1 sequence with the
-  submit's final-result queue (addendum AM).
+  submit's final-result queue.
 - **`root`** lives in the FlowToken (subclassing the message), not in the queue
-  message; `end_of_level_queue` = final-result queue is the store-free
-  equivalent of the old "results store". The agent does not decide where to
+  message; `end_of_level_queue` = final-result queue carries the result — there
+  is no results store. The agent does not decide where to
   deposit — who creates the flow assigns the class queue; the information lives
-  always in the token (addenda AJ/AL). There is no `route_pattern_names`
+  always in the token. There is no `route_pattern_names`
   (global route), no `ultimate_return_agent_id`, and no `client:{task_id}`/
   `results:{}` store.
 - Messages: `ExecutionRequestMessage` (start/deposit a step),

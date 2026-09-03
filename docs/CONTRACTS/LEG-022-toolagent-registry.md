@@ -1,21 +1,10 @@
 # LEG-022 — ToolAgent (Schema 1/2/3)
 
-- **Status:** REVISED 2026-09-01 (Schema 1 pattern + Schema 2 token + Schema 3
-  tools; supersedes the v1 CLOSED contract of the same name)
+- **Status:** APPROVED (Schema 1 pattern + Schema 2 token + Schema 3 tools)
 - **Rasante:** R-2
 - **GitHub issue:** #14
 - **Source:** `docs/PLAN.md` (LEG-022)
 - **Depends on:** LEG-013 (Schema 3), LEG-011 (Schema 2), LEG-010 (Schema 1)
-
-> **Note on implementation state.** The current `ToolAgent` (`agents/tool_agent.py`)
-> is still the v1 runner: it takes the whole payload, validates it
-> against the tool's pydantic `input_schema`, calls the tool, validates the
-> output. Per the approved Schemas the ToolAgent must instead execute a
-> `kind: tool` agent's **terse `parameters`** (`{arg: dotted.path | literal}`)
-> as the call, against the `tool: <name>` in `available_tools` (Schema 3),
-> validated against the tool's signature **at execution time** (addendum L —
-> the v1 whole-state→kwargs behavior is the migration defect). The code
-> migration is pending; this document is the Schema target contract.
 
 ## Goal
 Implement the ToolAgent execution path: a `kind: tool` agent that resolves its

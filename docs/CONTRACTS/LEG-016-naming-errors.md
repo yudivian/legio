@@ -1,4 +1,4 @@
-# LEG-016 — Naming & errors (v1)
+# LEG-016 — Naming & errors
 
 - **Status:** CLOSED (implementation green, maintainer approved, issue closed)
 - **Rasante:** R-1 (contract)

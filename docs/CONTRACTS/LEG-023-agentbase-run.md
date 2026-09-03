@@ -7,13 +7,6 @@
 - **Source:** `docs/PLAN.md` (LEG-023)
 - **Depends on:** LEG-011, LEG-014
 
-> **Revised 2026-08-30:** the `run(max_steps=100)` tick is the agent's **own
-> internal loop** (an agent is not a task and not a worker): it polls the
-> class's queue until idle, bounded by `max_steps` so a misbehaving step can
-> never starve the loop. Each dispatch is stateless and carries **no lease, no
-> retry and no re-queue**: an item is popped once and routed (AGENTS.md rules
-> 8/9).
-
 ## Goal
 The generalized per-step runner unifying all atomic agents and composites into
 a single loop: deliver that step's message, run the step's job, then decide
@@ -26,10 +19,14 @@ where to deposit the result.
   in.
 
 ## Contract & design
-- `run()` pops a message from the class's native beaver queue (destructively —
-  no lease), executes the step's job (**L2AΛ MPS** or per-agent equivalent) via
-  a subclass `_handle`, and deposits the result — mirroring Deliver's semantics
-  at unit level.
+- `run()` is the agent's own internal loop (an agent is not a task and not a
+  worker): it polls the class's queue until idle, bounded by `max_steps` so a
+  misbehaving step can never starve the loop.
+- Each dispatch pops a message from the class's native beaver queue
+  (destructively — **no lease, no retry and no re-queue**; an item is popped
+  once and routed, AGENTS.md rules 8/9), executes the step's job
+  (**L2AΛ MPS** or per-agent equivalent) via a subclass `_handle`, and deposits
+  the result — mirroring Deliver's semantics at unit level.
 - Each agent (atomic/composite/root) is a uniform `run()` unit; composite
   addresses L2A via its own dual queue (fan-in).
 - Result routing: one more step → stage $K{+}1$ as `ExecutionRequestMessage`;

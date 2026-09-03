@@ -6,16 +6,6 @@
 - **Source:** `docs/PLAN.md` (LEG-014)
 - **Depends on:** ARCHITECTURE §3, LEG-011, LEG-015
 
-> **Revised 2026-09-01 (Schema 2, addenda AJ/AL/AM + Fase 1):** the
-> `client:{task_id}` pseudo-agent, its termination flow, the stuck-client reaper
-> and the `results:{task_id}` store were all **removed**. The submit creates the
-> task's **final-result queue** (`result_queue_key(task_id)`) and seeds it as
-> the root token's `end_of_level_queue`; the class that closes the flow at
-> `level == 1` deposits the final result there. The client reads it back via
-> `status` (a non-destructive `peek`).
-> There is **no** store and
-> **no** `client:{task_id}` queue — the destination lives in the token.
-
 ## Goal
 Define the mini-manager (`submit`/`status`) and how root-task results are
 delivered to the client.
@@ -31,7 +21,7 @@ delivered to the client.
   (the final-result queue), polls step 1 into the starting agent's queue, tags
   the `tasks` entry with owner `client_id`, returns `task_id`.
 - Root delivery: when the root task finishes (end-of-sequence **and**
-  `level == 1`, addendum AV) the closing agent writes the result to its
+  `level == 1`) the closing agent writes the result to its
   `end_of_level_queue`, i.e. the final-result queue `result:<task_id>` — there
   is **no** `results:{task_id}` store and **no** `client:{task_id}` queue. The
   client reads it back via `status`.
