@@ -70,7 +70,7 @@ per (parallel, task) via the per-class bookkeeping
 ## Acceptance criteria
 
 From `docs/PLAN.md` (LEG-041), verbatim:
-- Two parallel branches both executes and their outputs merge on join;
+- Two parallel branches both execute and their outputs build one payload on join;
   release parallelism (both late-started together) in tests.
 
 ## Tests

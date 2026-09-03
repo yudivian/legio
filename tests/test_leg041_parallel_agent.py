@@ -8,7 +8,7 @@ per branch at this level of the same task, constant along the branch's sequence,
 preserved through the branch's whole execution) that names its join slot. The
 join bookkeeping is keyed directly on the constant ``task_id`` (O(1) fetch; no
 child→parent scan). On all-complete it builds its payload from the branch
-results (H3 flat union), decrements ``level`` (−1) and resumes its own level
+results (H3 building the payload), decrements ``level`` (−1) and resumes its own level
 (Schema 2 §12.4). Nothing waits and nothing is locked: branches run as soon as
 their deposit lands on their queue (release parallelism, rule 8).
 """

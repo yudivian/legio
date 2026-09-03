@@ -179,10 +179,10 @@ are red for the yet-unimplemented surface.
   - **Accept**: single-node parallel with 3 children completes with all results;
     a missing child result is surfaced visibly (never silent).
 - **LEG-042** Fan-in by source (dedupe per (parallel, task)) + `output_as`
-  merging (H3 semantics).
+  namespacing (H3 payload building).
   - **Accept**: two occurrences of the same child pattern in one DAG are
-    distinct tasks (dedupe per (parallel, task), not by agent name); merge is
-    flat-union; collisions resolved by `output_as`.
+    distinct tasks (dedupe per (parallel, task), not by agent name); the payload
+    is built flat; collisions resolved by `output_as`.
 - **LEG-043** Examples `extract_and_summarize` (sequence) and `distribute_summary`
   (parallel), domain-free.
   - **Accept**: both are green tests exercising real composite flows.
@@ -200,7 +200,7 @@ are red for the yet-unimplemented surface.
 - **LEG-052** Fan-in identity by path (not agent name); `output_as`
   namespacing fixes.
   - **Accept**: same-named parallel branches at different positions do not
-    merge; regression tests cover the earlier agent-name bug.
+    join together; regression tests cover the earlier agent-name bug.
 - **LEG-053** Final-result delivery semantics (branch-close vs flow-end).
   - **Accept**: the flow-end at `level == 1` delivers the final result to the
     submit-seeded final-result queue, distinct from intermediate branch closes;

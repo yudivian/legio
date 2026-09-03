@@ -18,7 +18,7 @@ green: a sequence (steps chained on one path) and a parallel (fan-out/join).
 - In-repo examples (no consumer material):
   - `extract_and_summarize`: `[linguistic → tool]` sequence (fake lingo).
   - `distribute_summary`: parallel fan-out of `n` branches, join by path.
-- Both run on real beaver; correct scoping, ordering, merge and root delivery.
+- Both run on real beaver; correct scoping, ordering, payload building and root delivery.
 
 ## Interface
 - Via LEG-025/LEG-027 REST as a client would.

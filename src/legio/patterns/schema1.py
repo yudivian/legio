@@ -1,7 +1,7 @@
 """`legio.patterns.schema1` — Schema 1 agent spec models (LEG-010).
 
 One agent spec: `type` × `kind` with mandatory symmetric contracts
-and terse call vocabulary. No v1 `input_mapping`, `merge_rename`, etc.
+and terse call vocabulary. No v1 legacy fields (`input_mapping`, etc.).
 """
 
 from __future__ import annotations

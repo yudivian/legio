@@ -12,21 +12,21 @@ the DAG, *not* by agent name. Fixes the earlier agent-name bug.
 
 ## Scope
 - **In scope:** step id semantics (`task_id`+path), naming of inline steps,
-  dedup/regression of the agent-name merge bug.
+  dedup/regression of the agent-name join bug.
 - **Out of scope:** FINAL-identity semantics already covered by LEG-042.
 
 ## Contract & design
 - Same agent name at two disk-positions = two distinct steps = two distinct
   fan-in holes (LEG-042). Identity = task + dotted path, no global agent
   collision.
-- `output_as` namespacing resolves merge key collisions (H3).
+- `output_as` namespacing resolves key collisions (H3).
 
 ## Interface
 - Step ID composition API.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-052), verbatim:
-- Same-named parallel branches at different positions do not merge; regression
+- Same-named parallel branches at different positions do not join together; regression
   tests cover the earlier agent-name bug.
 
 ## Tests

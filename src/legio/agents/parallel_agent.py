@@ -27,9 +27,9 @@ parallel needs to resume rides in the message.
   (base route + sequence re-seed + parallel resume), a composite/multi-step
   branch — whose returned ``level_route`` expands to its own steps — still slots
   under the parent-assigned id. When all branches of the task have returned, the
-  parallel builds its payload
-  from the branch results (H3 flat union — the branches' outputs are folded
-  into one payload; ``output_as`` collision/namespacing merging is LEG-042),
+  the parallel builds its payload
+  from the branch results with ``build_payload`` (H3 building the payload;
+  ``output_as`` namespacing is LEG-042),
   decrements ``level`` (−1) and resumes its own level through the uniform
   Schema 2 advance — with the ``end_of_level_queue`` its creator supplied.
 
@@ -171,7 +171,7 @@ class ParallelAgent(AgentBase):
 
     def _build_branch_payload(self, record: dict[str, Any]) -> dict[str, Any]:
         """Build the parallel's payload from the incoming payload + each branch
-        result, H3 flat union (output_as namespacing is LEG-042)."""
+        result, H3 building the payload (output_as namespacing is LEG-042)."""
         continuation = record["continuation"]
         payload = dict(continuation["payload"])
         for slot in record["slots"].values():
