@@ -345,16 +345,15 @@ def test_starting_route_atomic() -> None:
     assert route == ("single_tool",)
 
 
-def test_starting_route_rejects_parallel() -> None:
-    """starting_route raises for parallel composites (R-4+)."""
-    from legio.errors import UnrecoverableError
+def test_starting_route_starts_parallel_root_on_its_own_class() -> None:
+    """A parallel root is a starting agent: the submit delivers to its own
+    class and the ParallelAgent concretizes the fan-out (decoupled, LEG-043)."""
     from legio.patterns import starting_route
 
     catalog = load_patterns(PARALLEL_YAML)
     spec = catalog.get("distribute_summary")
     assert spec is not None
-    with pytest.raises(UnrecoverableError):
-        starting_route(spec)
+    assert starting_route(spec) == ("distribute_summary",)
 
 
 def test_compile_output_schema_with_union_array_nested_recursive() -> None:

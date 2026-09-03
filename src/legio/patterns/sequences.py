@@ -1,12 +1,16 @@
-"""`legio.patterns.sequences` — linear starting-sequence DAG derivation (R-3, LEG-032).
+"""`legio.patterns.sequences` — starting-route derivation (R-3/R-4, LEG-032/043).
 
-Derives the concrete sub-DAG of a **sequence** starting pattern: the ordered list
-of stage names the token travels. It feeds the construction of the *starting
-agent* of that sequence (its ``starting_dag``), which concretizes the token at
-runtime (ARCHITECTURE §3/§6) — it is **not** resolved by the manager at submit.
+Derives the starting route the submit delivers to. The submit is a dumb
+delivery point: it only hands the task to the **starting agent** (the entry) and
+never resolves any DAG. That agent — atomic, sequence or parallel — concretizes
+its own sub-DAG at runtime (ARCHITECTURE §3/§6):
+- an atomic (tool/linguistic) starts on its own class;
+- a parallel root starts on its own class (the ParallelAgent concretizes the
+  fan-out);
+- a ``main`` sequence is still flattened to its stage names (R-3 behaviour).
 
-Only linear atomic chains are in R-3 scope. Parallel fan-out and nested
-composites (R-4+) raise a structured error rather than guessing.
+Nested composites inside a sequence (R-4+) raise a structured error rather than
+guessing.
 """
 
 from __future__ import annotations
@@ -29,13 +33,13 @@ def _collect_sequence_route(spec: AgentSpec) -> tuple[str, ...]:
 
 
 def starting_route(spec: AgentSpec) -> tuple[str, ...]:
-    """Return the ordered sub-DAG (stage names) for a sequence starting pattern.
+    """Return the route the submit delivers to for a starting agent.
 
     - A single atomic pattern (tool/linguistic) yields ``(spec.name,)``.
-    - A ``main``/composite pattern with a linear ``sequence`` of atomic stages
-      yields the stage names in order.
-    - Anything else (parallel, nested composite inside sequence) is out of R-3
-      scope and raises.
+    - A ``main`` sequence is flattened to its stage names in order (R-3).
+    - A parallel root yields ``(spec.name,)`` — the submit delivers to the
+      parallel's own class and the ParallelAgent concretizes the fan-out.
+    - Anything else (nested composite inside a sequence) raises.
     """
     if spec.type is AgentType.ATOMIC:
         # Atomic agent (tool/linguistic) is its own route
@@ -45,9 +49,9 @@ def starting_route(spec: AgentSpec) -> tuple[str, ...]:
         return _collect_sequence_route(spec)
 
     if spec.kind is AgentKind.PARALLEL:
-        raise UnrecoverableError(
-            f"pattern {spec.name!r} declares a parallel fan-out; not in R-3 route scope"
-        )
+        # A parallel root is itself the starting agent: the submit delivers to
+        # its own class queue and the ParallelAgent concretizes the fan-out.
+        return (spec.name,)
 
     raise UnrecoverableError(
         f"pattern {spec.name!r} is a composite without a linear atomic sequence"
