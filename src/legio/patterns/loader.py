@@ -75,12 +75,20 @@ def _validate_agent_spec(
         catalog = {}
 
     # Interior ↔ contract coherence
-    if spec.kind.value == "tool":
-        # tool parameters coherence: each dotted path must resolve in chain
-        _validate_parameters_chain(spec.parameters or {}, parent_scope or {})
+    if spec.kind is not None and spec.kind.value == "tool":
+        # A tool resolves its terse parameters against the input under its
+        # `input_as` (resolve_parameters in AGENT_LIFECYCLE §…). Top-level tools
+        # validate against their own input_schema; sibling references are
+        # validated per-branch by the composite below.
+        tool_scope: dict[str, Any] = (
+            spec.input.input_schema.get("properties", {})
+            if spec.input.input_schema
+            else {}
+        )
+        _validate_parameters_chain(spec.parameters or {}, tool_scope)
         # TODO: tool signature coherence checked at load where possible (LEG-022)
 
-    elif spec.kind.value == "linguistic" and spec.prompt:
+    elif spec.kind is not None and spec.kind.value == "linguistic" and spec.prompt:
         # prompt variables ↔ input_schema
         import re
 
@@ -100,30 +108,76 @@ def _validate_agent_spec(
                 f"linguistic agent {spec.name!r}: input_schema has unused declarations: {undeclared}"
             )
 
-    # Composite children validation
-    child_scope = _build_chain_scope(spec, parent_scope)
-
-    if spec.type.value == "composite":
-        if spec.kind.value == "sequence":
-            # sequence: each child sees previous siblings' outputs
-            current_scope = dict(child_scope)
-            if spec.sequence:
-                for child in spec.sequence:
-                    _validate_agent_spec(child, current_scope, catalog)
-                    if child.output.output_schema:
-                        current_scope[child.output.output_as] = child.output.output_schema.get("properties", {})
-        elif spec.kind.value == "parallel":
-            # parallel: children bind ONLY from parent's entry (input_as)
-            entry_scope = {spec.input.input_as: spec.input.input_schema or {}}
-            if spec.parallel:
-                for child in spec.parallel:
-                    _validate_agent_spec(child, entry_scope, catalog)
-        else:
-            raise UnrecoverableError(f"unknown composite kind: {spec.kind.value}")
+    # Composite: validate branches (bare pattern names resolved against catalog).
+    # Each branch is a sequence of sibling references; tool steps may consume the
+    # outputs of earlier siblings plus the composite's own input, so their
+    # parameters are validated against the cumulative branch scope.
+    if spec.type.value == "composite" and spec.branches:
+        for branch_idx, branch in enumerate(spec.branches):
+            branch_scope: dict[str, Any] = {}
+            if spec.input.input_schema:
+                branch_scope.update(
+                    spec.input.input_schema.get("properties", {})
+                )
+            for step_name in branch:
+                if step_name not in catalog:
+                    raise UnrecoverableError(
+                        f"composite {spec.name!r} branch {branch_idx} "
+                        f"references unknown pattern: {step_name!r}"
+                    )
+                step_spec = catalog[step_name]
+                if step_spec.kind is not None and step_spec.kind.value == "tool":
+                    # The tool resolves its parameters against the input under
+                    # its `input_as` (a sibling output) merged with the enclosing
+                    # composite's own input scope — the union a step may reference
+                    # (matching how the runtime re-keys the payload).
+                    sibling_input = branch_scope.get(step_spec.input.input_as, {})
+                    validation_scope = dict(branch_scope)
+                    if isinstance(sibling_input, dict):
+                        validation_scope.update(sibling_input)
+                    _validate_parameters_chain(
+                        step_spec.parameters or {}, validation_scope
+                    )
+                if step_spec.output.output_schema:
+                    branch_scope[step_spec.output.output_as] = (
+                        step_spec.output.output_schema.get("properties", {})
+                    )
 
     if spec.output.output_schema:
         return {spec.output.output_as: spec.output.output_schema.get("properties", {})}
     return {}
+
+
+def resolve_branch(
+    branch: list[str], catalog: Catalog
+) -> tuple[tuple[str, str], ...]:
+    """Resolve a composite branch (bare pattern names) to a ``(class, input_as)`` route.
+
+    Each step is a reference to a defined agent; its ``(class, input_as)`` pair is
+    the class name and the referenced agent's declared ``input_as`` (Schema 2 —
+    resolved by the loader when it builds the level/branch DAG, never declared on
+    the step). A step whose referenced agent is a ``type: composite`` is kept as
+    a position in the route; that composite performs its own fan-out when invoked
+    through its inbox (reuse by reference, recursion).
+    """
+    route: list[tuple[str, str]] = []
+    for step_name in branch:
+        if step_name not in catalog:
+            raise UnrecoverableError(
+                f"branch references unknown pattern: {step_name!r}"
+            )
+        step = catalog.specs[step_name]
+        route.append((step.name, step.input.input_as))
+    return tuple(route)
+
+
+def resolve_composite_branches(
+    spec: AgentSpec, catalog: Catalog
+) -> list[tuple[tuple[str, str], ...]]:
+    """Resolve every branch of a composite to its expanded ``(class, input_as)`` route."""
+    if spec.type.value != "composite" or not spec.branches:
+        raise UnrecoverableError(f"spec {spec.name!r} is not a composite with branches")
+    return [resolve_branch(branch, catalog) for branch in spec.branches]
 
 
 def _load_specs_from_yaml(data: Any, catalog: Catalog) -> list[AgentSpec]:
@@ -170,22 +224,14 @@ def load_patterns(source: str | Path | dict[str, Any] | list[dict[str, Any]]) ->
 
     # Handle YAML string (contains newlines or starts with YAML indicators)
     if isinstance(source, str) and ("\n" in source or source.strip().startswith(("{", "[", "-", "name:"))):
-        data = yaml.safe_load(source)
-        if data:
-            _load_specs_from_yaml(data, catalog)
+        _load_all_documents(source, catalog)
     elif isinstance(source, (str, Path)):
         path = Path(source)
         if path.is_dir():
             for yaml_file in sorted(path.glob("*.yaml")):
-                text = yaml_file.read_text(encoding="utf-8")
-                data = yaml.safe_load(text)
-                if data:
-                    _load_specs_from_yaml(data, catalog)
+                _load_all_documents(yaml_file.read_text(encoding="utf-8"), catalog)
         else:
-            text = path.read_text(encoding="utf-8")
-            data = yaml.safe_load(text)
-            if data:
-                _load_specs_from_yaml(data, catalog)
+            _load_all_documents(path.read_text(encoding="utf-8"), catalog)
     elif isinstance(source, (dict, list)):
         _load_specs_from_yaml(source, catalog)
     else:
@@ -195,4 +241,16 @@ def load_patterns(source: str | Path | dict[str, Any] | list[dict[str, Any]]) ->
     return catalog
 
 
-__all__ = ["Catalog", "load_patterns"]
+def _load_all_documents(text: str, catalog: Catalog) -> None:
+    """Load every YAML document in a stream (multi-doc ``---`` supported)."""
+    for document in yaml.safe_load_all(text):
+        if document is not None:
+            _load_specs_from_yaml(document, catalog)
+
+
+__all__ = [
+    "Catalog",
+    "load_patterns",
+    "resolve_branch",
+    "resolve_composite_branches",
+]

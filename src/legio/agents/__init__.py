@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from .base import AgentBase
+from .composite_agent import CompositeAgent
 from .linguistic_agent import LinguisticAgent
-from .parallel_agent import ParallelAgent
-from .sequence_agent import SequenceAgent
 from .tool_agent import ToolAgent
 
-__all__ = ["AgentBase", "LinguisticAgent", "ParallelAgent", "SequenceAgent", "ToolAgent"]
+__all__ = ["AgentBase", "CompositeAgent", "LinguisticAgent", "ToolAgent"]

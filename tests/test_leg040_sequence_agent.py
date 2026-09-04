@@ -1,20 +1,19 @@
-"""Contract tests for LEG-040 — SequenceAgent (forward-only composite, R-4).
+"""Contract tests for LEG-040 — CompositeAgent single branch (a sequence, R-4).
 
-A sequence composite is a forward-only chain (AGENT_LIFECYCLE §12.3): steps run
-strictly in order and nothing returns to the sequence itself. When a sequence is
-reached as a step of its parent's route (a nested/capability sequence), its
-``SequenceAgent`` re-seeds the first of its declared stages with a flattened
-``level_route`` and ``current_index = 0``, preserving ``level``,
-``end_of_level_queue``, ``task_id``, ``launcher_class`` and the incoming
-``payload``; the base ``AgentBase`` then advances by position through the stages
-to the end of the level (Schema 2 §12.4). A top-level ``main`` sequence is
-flattened by ``starting_route`` (its stages ARE the level route), so the
-composite is only invoked as an embedded capability.
+A composite with **one branch** is a sequence (AGENT_LIFECYCLE §4.10/§12.3):
+steps run strictly in order and nothing returns to the composite itself. The
+unified CompositeAgent fans the incoming request out to its single branch with
+``level + 1`` and ``current_index = 0``, preserving ``task_id``,
+``launcher_class`` and ``end_of_level_queue``, and re-keying the incoming payload
+under the first step's ``input_as``; ``AgentBase`` then advances by position
+through the branch's steps to the end of the level (Schema 2 §12.4). The same
+code path handles the top-level sequence and the nested/branch sequence — there
+is only one runner (LEG-044).
 
 The contract asserts the two properties the LEG-040 acceptance requires:
 ordering by the token (step 1's result is consumable in step 2) and payload
-building across steps, plus the forwarding invariants for the nested composite.
-Failures (an empty sequence) are never silent (AGENTS.md rule 9).
+building across steps, plus the forwarding invariants for the composite. Failures
+(an empty sequence) are never silent (AGENTS.md rule 9).
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ import pytest
 from beaver import AsyncBeaverDB
 
 from legio.agents.base import AgentBase
-from legio.agents.sequence_agent import SequenceAgent
+from legio.agents.composite_agent import CompositeAgent
 from legio.flow import ExecutionRequestMessage, ExecutionResultMessage, build_payload
 from legio.naming import queue_key
 
@@ -52,14 +51,22 @@ async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
     return item.data
 
 
-def build_sequence(
+def build_composite(
     *,
     db: AsyncBeaverDB,
     sequence_route: tuple[tuple[str, str], ...],
     agent_id: str = "seq",
     input_as: str = "seq",
-) -> SequenceAgent:
-    return SequenceAgent(agent_id=agent_id, db=db, sequence_route=sequence_route, input_as=input_as)
+    output_as: str = "seq",
+) -> CompositeAgent:
+    # A single-branch composite whose one branch is the sequence route.
+    return CompositeAgent(
+        agent_id=agent_id,
+        db=db,
+        branches=[list(sequence_route)],
+        input_as=input_as,
+        output_as=output_as,
+    )
 
 
 def step_request(
@@ -86,9 +93,9 @@ def step_request(
 async def test_sequence_forwards_to_first_stage_of_flattened_route(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """A nested sequence re-seeds its first stage with current_index 0 and
-    re-keys the incoming payload under the first stage's ``input_as``."""
-    seq = build_sequence(db=beaver_db, sequence_route=(("a", "a"), ("b", "b")), input_as="seq")
+    """The composite re-seeds its first stage with current_index 0 and re-keys
+    the incoming payload under the first stage's ``input_as``."""
+    seq = build_composite(db=beaver_db, sequence_route=(("a", "a"), ("b", "b")), input_as="seq")
     request = step_request(
         task_id="T-seq",
         payload={"seq": {"seed": 7}},
@@ -107,9 +114,10 @@ async def test_sequence_forwards_to_first_stage_of_flattened_route(
     assert forwarded.level_route == (("a", "a"), ("b", "b"))
     assert forwarded.current_index == 0
     assert forwarded.task_id == "T-seq"
-    assert forwarded.end_of_level_queue == "result:T-seq"
-    assert forwarded.level == 1
-    assert forwarded.launcher_class == "outer"
+    # the branch's stages close to this composite's own gathering queue, so the
+    # composite can join them before resuming its own level
+    assert forwarded.end_of_level_queue == "seq"
+    assert forwarded.level == 2
     assert forwarded.payload == {"a": {"seed": 7}}
 
 
@@ -117,8 +125,18 @@ async def test_sequence_forwards_to_first_stage_of_flattened_route(
 async def test_sequence_preserves_level_and_end_queue_for_branch(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """A sequence inside a parallel branch keeps its level and branch closer."""
-    seq = build_sequence(db=beaver_db, sequence_route=(("p", "p"), ("q", "q")), input_as="seq")
+    """A sequence inside a parallel branch keeps its level and branch closer: the
+    branch's stages return to the composite's own gathering queue, the composite
+    joins them (single branch -> immediate) and resumes its own level carrying the
+    outer-assigned closer (``gather:par``) and level."""
+    seq = build_composite(
+        db=beaver_db,
+        sequence_route=(("p", "p"), ("q", "q")),
+        input_as="seq",
+        output_as="o",
+    )
+    step_p = BuildStep(agent_id="p", db=beaver_db, key="s", input_as="p", output_as="o")
+    step_q = BuildStep(agent_id="q", db=beaver_db, key="t", input_as="o", output_as="o")
     request = step_request(
         task_id="T-branch",
         payload={"seq": {"v": 1}},
@@ -134,10 +152,26 @@ async def test_sequence_preserves_level_and_end_queue_for_branch(
     first = await pop_one(beaver_db, "p")
     assert first is not None
     forwarded = ExecutionRequestMessage.model_validate(first)
-    assert forwarded.level == 2
-    assert forwarded.end_of_level_queue == "gather:par"
+    assert forwarded.level == 3
+    assert forwarded.end_of_level_queue == "seq"
     assert forwarded.level_route == (("p", "p"), ("q", "q"))
     assert forwarded.payload == {"p": {"v": 1}}
+
+    # run the branch to its close, then let the composite join and resume.
+    await beaver_db.queue(queue_key("p")).put(forwarded.model_dump(mode="json"), priority=0.0)
+    assert await step_p.process_next() is True
+    second = await pop_one(beaver_db, "q")
+    assert second is not None
+    await beaver_db.queue(queue_key("q")).put(second, priority=0.0)
+    assert await step_q.process_next() is True
+    assert await seq.process_next() is True
+
+    # the composite resumes its own level, preserving the outer branch closer.
+    resumed = await pop_one(beaver_db, "gather:par")
+    assert resumed is not None
+    resumed_msg = ExecutionResultMessage.model_validate(resumed)
+    assert resumed_msg.level == 2
+    assert resumed_msg.end_of_level_queue == "gather:par"
 
 
 @pytest.mark.asyncio
@@ -147,8 +181,11 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
     """A two-step sequence runs step 1 then step 2; step 2 consumes step 1's
     output via the re-keying handoff (ordering by the token) and the final
     result lands on the closer under the last stage's ``output_as``."""
-    seq = build_sequence(
-        db=beaver_db, sequence_route=(("step1", "step1"), ("step2", "o1")), input_as="seq"
+    seq = build_composite(
+        db=beaver_db,
+        sequence_route=(("step1", "step1"), ("step2", "o1")),
+        input_as="seq",
+        output_as="o2",
     )
     step1 = BuildStep(
         agent_id="step1", db=beaver_db, key="s1", input_as="step1", output_as="o1"
@@ -163,6 +200,7 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
     )
     await beaver_db.queue(queue_key("seq")).put(request.model_dump(mode="json"), priority=0.0)
 
+    # Composite fans out to its single branch (first stage step1).
     assert await seq.process_next() is True
 
     first = await pop_one(beaver_db, "step1")
@@ -182,17 +220,23 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
     await beaver_db.queue(queue_key("step2")).put(second_request.model_dump(mode="json"), priority=0.0)
     assert await step2.process_next() is True
 
+    # The branch closes to the composite's gathering queue (collapsed onto its
+    # own queue); the composite joins (single branch -> immediate) and resumes
+    # its own level — here the level's end, delivering to the final-result queue.
+    assert await seq.process_next() is True
+
     result_item = await pop_one(beaver_db, "result:T-2")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-2"
-    assert result.payload == {"o2": {"s2": 3, "value": 3}}
+    # the composite wraps the branch's produced output under its own output_as
+    assert result.payload == {"o2": {"o2": {"s2": 3, "value": 3}}}
 
 
 @pytest.mark.asyncio
 async def test_sequence_with_empty_route_fails_visibly(beaver_db: AsyncBeaverDB) -> None:
-    """An empty sequence is a load-time/construction error, never silent."""
-    seq = build_sequence(db=beaver_db, sequence_route=())
+    """An empty sequence is a construction error, never silent."""
+    seq = build_composite(db=beaver_db, sequence_route=())
     request = step_request(
         task_id="T-empty",
         payload={},

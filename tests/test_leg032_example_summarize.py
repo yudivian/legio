@@ -3,7 +3,8 @@
 The first R-3 domain-free example: a ``summarize`` flow composed of two
 *independent, standing* atomic agents — a ``summ`` linguistic agent (driven by a
 ``MockLLM`` fake) that produces structured output, and an ``assess`` tool agent
-that consumes that structured output and produces the final result. They run
+that consumes that structured output and produces the final result — driven by a
+unified ``CompositeAgent`` (single branch = a sequence, LEG-040/LEG-044). They run
 through the decoupled polling model (AGENTS.md/ARCH): each agent is booted at
 node startup with its own native beaver queue, polls its own queue, and routes
 by the token — there is no central engine and nothing is loaded dynamically at
@@ -20,18 +21,63 @@ from beaver import AsyncBeaverDB
 from lingo.mock import MockLLM
 from pydantic import BaseModel
 
+from legio.agents.composite_agent import CompositeAgent
 from legio.agents.linguistic_agent import LinguisticAgent
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.naming import result_queue_key
-from legio.patterns import load_patterns
+from legio.patterns import load_patterns, resolve_composite_branches
 from legio.security import ClientTokenStore
 from legio.tools import AvailableToolsRegistry
 
 SUMMARIZE_YAML = """
+name: summ
+type: atomic
+kind: linguistic
+input:
+  input_as: payload
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+      lang: {type: string}
+output:
+  output_as: summ
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      title: {type: string}
+      summary: {type: string}
+      word_count: {type: integer}
+prompt: "Summarize {text} and {lang}."
+---
+name: assess
+type: atomic
+kind: tool
+input:
+  input_as: summ
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      title: {type: string}
+      summary: {type: string}
+output:
+  output_as: result
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      result: {type: string}
+tool: assess
+parameters:
+  title: "{title}"
+  summary: "{summary}"
+---
 name: summarize
 type: composite
-kind: sequence
 main: true
 input:
   input_as: payload
@@ -48,50 +94,9 @@ output:
     type: object
     properties:
       result: {type: string}
-sequence:
-  - name: summ
-    type: atomic
-    kind: linguistic
-    input:
-      input_as: payload
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          text: {type: string}
-          lang: {type: string}
-    output:
-      output_as: summ
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          title: {type: string}
-          summary: {type: string}
-          word_count: {type: integer}
-    prompt: "Summarize {text} and {lang}."
-  - name: assess
-    type: atomic
-    kind: tool
-    input:
-      input_as: summ
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          title: {type: string}
-          summary: {type: string}
-    output:
-      output_as: result
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          result: {type: string}
-    tool: assess
-    parameters:
-      title: "{summ.title}"
-      summary: "{summ.summary}"
+branches:
+  - - summ
+    - assess
 """
 
 
@@ -114,8 +119,11 @@ def bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent]:
-    """Boot the two independent agents at node startup, each with its own queue."""
+def build_standing_agents(
+    db: AsyncBeaverDB,
+) -> tuple[CompositeAgent, LinguisticAgent, ToolAgent]:
+    """Boot the composite and its two independent standing agents at node
+    startup, each with its own queue."""
     lingo_client = MockLLM(
         responses=[SummarizeOutput(title="Foxes", summary="A note about foxes.", word_count=4)]
     )
@@ -144,7 +152,17 @@ def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
         input_as="summ",
         output_as="result",
     )
-    return summ, assess
+
+    catalog = load_patterns(SUMMARIZE_YAML)
+    branches = resolve_composite_branches(catalog.specs["summarize"], catalog)
+    composite = CompositeAgent(
+        agent_id="summarize",
+        db=db,
+        branches=branches,
+        input_as="payload",
+        output_as="result",
+    )
+    return composite, summ, assess
 
 
 @pytest.mark.asyncio
@@ -154,7 +172,7 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
     caplog.set_level(logging.INFO)
 
     # Boot the standing agents
-    summ, assess = build_standing_agents(beaver_db)
+    composite, summ, assess = build_standing_agents(beaver_db)
 
     # Load the pattern catalog
     pattern_catalog = load_patterns(SUMMARIZE_YAML)
@@ -175,9 +193,13 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
         assert resp.status_code == 200, resp.text
         task_id = resp.json()["task_id"]
 
-        # Run both agents until they process the task
-        await summ.run()
-        await assess.run()
+        # Drive the composite fan-out, the branch steps, and the fan-in to
+        # completion (interleaved, polling only).
+        for _ in range(4):
+            await composite.run()
+            await summ.run()
+            await assess.run()
+            await composite.run()
 
         # Check status
         status_resp = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
@@ -188,7 +210,7 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
 
         # The tool should have received the linguistic output (re-keyed under its
         # input_as and wrapped under the final output_as in the result)
-        assert entry["output"]["result"]["result"] == "[Foxes] A note about foxes."
+        assert entry["output"]["result"]["result"]["result"] == "[Foxes] A note about foxes."
 
         log_text = caplog.text
         assert "manager submit" in log_text

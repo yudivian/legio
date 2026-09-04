@@ -21,8 +21,6 @@ class AgentType(str, Enum):
 class AgentKind(str, Enum):
     TOOL = "tool"
     LINGUISTIC = "linguistic"
-    SEQUENCE = "sequence"
-    PARALLEL = "parallel"
 
 
 class IOType(str, Enum):
@@ -75,7 +73,9 @@ class AgentSpec(BaseModel):
     """One agent spec: type × kind with mandatory symmetric contracts."""
 
     type: AgentType
-    kind: AgentKind
+    kind: AgentKind | None = Field(
+        default=None, description="tool | linguistic (atomic only); None for composite"
+    )
     name: str
     description: str | None = None
     main: bool = False
@@ -84,7 +84,7 @@ class AgentSpec(BaseModel):
     input: InputContract
     output: OutputContract
 
-    # Interior (exactly one by kind)
+    # Interior — ATOMIC only, by kind
     tool: str | None = Field(
         default=None, description="available_tools key (kind: tool)"
     )
@@ -94,80 +94,49 @@ class AgentSpec(BaseModel):
     prompt: str | None = Field(
         default=None, description="Prompt template (kind: linguistic)"
     )
-    sequence: list[AgentSpec] | None = Field(
-        default=None, description="Child specs (kind: sequence)"
-    )
-    parallel: list[AgentSpec] | None = Field(
-        default=None, description="Child specs (kind: parallel)"
+
+    # Interior — COMPOSITE only
+    branches: list[list[str]] | None = Field(
+        default=None,
+        description="List of branches; each branch an ordered list of bare pattern names",
     )
 
     @model_validator(mode="after")
     def _validate_kind_fields(self) -> AgentSpec:
-        # Discriminators
-        if self.kind is AgentKind.TOOL:
-            if self.tool is None:
-                raise ValueError("kind: tool requires tool (available_tools key)")
-            if self.parameters is None:
-                raise ValueError("kind: tool requires parameters")
-            if self.prompt is not None:
-                raise ValueError("kind: tool must not have prompt")
-        elif self.kind is AgentKind.LINGUISTIC:
-            if self.prompt is None:
-                raise ValueError("kind: linguistic requires prompt")
-            if self.tool is not None:
-                raise ValueError("kind: linguistic must not have tool")
-            if self.parameters is not None:
-                raise ValueError("kind: linguistic must not have parameters")
-        elif self.kind is AgentKind.SEQUENCE:
-            if self.sequence is None:
-                raise ValueError("kind: sequence requires sequence")
-            if self.tool is not None:
-                raise ValueError("kind: sequence must not have tool")
-            if self.prompt is not None:
-                raise ValueError("kind: sequence must not have prompt")
-        elif self.kind is AgentKind.PARALLEL:
-            if self.parallel is None:
-                raise ValueError("kind: parallel requires parallel")
-            if self.tool is not None:
-                raise ValueError("kind: parallel must not have tool")
-            if self.prompt is not None:
-                raise ValueError("kind: parallel must not have prompt")
-        else:
-            raise ValueError(f"unknown kind: {self.kind}")
-
-        # Branch-exclusive
-        interior_fields = [
-            ("tool", self.tool),
-            ("parameters", self.parameters),
-            ("prompt", self.prompt),
-            ("sequence", self.sequence),
-            ("parallel", self.parallel),
-        ]
-        present = [name for name, val in interior_fields if val is not None]
-        # For atomic kinds, tool/parameters/prompt are expected; for composites, sequence/parallel
         if self.type is AgentType.ATOMIC:
+            if self.kind is None:
+                raise ValueError("atomic requires kind (tool | linguistic)")
+            if self.branches is not None:
+                raise ValueError("atomic must not have branches")
             if self.kind is AgentKind.TOOL:
-                expected = {"tool", "parameters"}
+                if self.tool is None:
+                    raise ValueError("kind: tool requires tool (available_tools key)")
+                if self.parameters is None:
+                    raise ValueError("kind: tool requires parameters")
+                if self.prompt is not None:
+                    raise ValueError("kind: tool must not have prompt")
             elif self.kind is AgentKind.LINGUISTIC:
-                expected = {"prompt"}
+                if self.prompt is None:
+                    raise ValueError("kind: linguistic requires prompt")
+                if self.tool is not None:
+                    raise ValueError("kind: linguistic must not have tool")
+                if self.parameters is not None:
+                    raise ValueError("kind: linguistic must not have parameters")
             else:
-                expected = set()
-        else:  # COMPOSITE
-            if self.kind is AgentKind.SEQUENCE:
-                expected = {"sequence"}
-            elif self.kind is AgentKind.PARALLEL:
-                expected = {"parallel"}
-            else:
-                expected = set()
-
-        if set(present) != expected:
-            raise ValueError(
-                f"kind {self.kind.value} with type {self.type.value} "
-                f"requires exactly {expected}, got {set(present)}"
-            )
-
-        # Composite children: for parallel, children bind only from entry (input_as)
-        # This is validated at load-time in the loader (LEG-021)
+                raise ValueError(f"unknown kind: {self.kind}")
+        elif self.type is AgentType.COMPOSITE:
+            if self.kind is not None:
+                raise ValueError("composite must not have kind")
+            if self.branches is None:
+                raise ValueError("composite requires branches")
+            if self.tool is not None:
+                raise ValueError("composite must not have tool")
+            if self.prompt is not None:
+                raise ValueError("composite must not have prompt")
+            if self.parameters is not None:
+                raise ValueError("composite must not have parameters")
+        else:
+            raise ValueError(f"unknown type: {self.type}")
 
         return self
 

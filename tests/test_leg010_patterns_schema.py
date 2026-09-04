@@ -22,11 +22,55 @@ from legio.patterns import (
 from legio.patterns.compile import compile_output_schema
 from legio.patterns.template import resolve_template
 
-# Schema 1 fixtures
-SMALL_SEQUENCE_YAML = """
+# Schema 1 fixtures — unified composite model (type: composite + branches)
+
+TOOL_SPEC_YAML = """
+name: extract
+type: atomic
+kind: tool
+input:
+  input_as: text
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+output:
+  output_as: extracted
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      entities: {type: array, items: {type: string}}
+tool: extractor
+parameters:
+  text: "{text}"
+"""
+
+LINGUISTIC_SPEC_YAML = """
+name: summarize
+type: atomic
+kind: linguistic
+input:
+  input_as: extracted
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      entities: {type: array, items: {type: string}}
+output:
+  output_as: summary
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      summary: {type: string}
+prompt: "Summarize these entities: {entities}"
+"""
+
+COMPOSITE_SEQUENCE_YAML = """
 name: extract_and_summarize
 type: composite
-kind: sequence
 input:
   input_as: payload
   input_type: json
@@ -43,51 +87,14 @@ output:
     properties:
       summary: {type: string}
       entities: {type: array, items: {type: string}}
-sequence:
-  - name: extract
-    type: atomic
-    kind: tool
-    input:
-      input_as: text
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          text: {type: string}
-    output:
-      output_as: extracted
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          entities: {type: array, items: {type: string}}
-    tool: extractor
-    parameters:
-      text: "{text}"
-  - name: summarize
-    type: atomic
-    kind: linguistic
-    input:
-      input_as: extracted
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          entities: {type: array, items: {type: string}}
-    output:
-      output_as: summary
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          summary: {type: string}
-    prompt: "Summarize these entities: {entities}"
+branches:
+  - - extract
+    - summarize
 """
 
-PARALLEL_YAML = """
+COMPOSITE_PARALLEL_YAML = """
 name: distribute_summary
 type: composite
-kind: parallel
 input:
   input_as: payload
   input_type: json
@@ -103,43 +110,70 @@ output:
     properties:
       summ: {type: string}
       cata: {type: string}
-parallel:
-  - name: summ
-    type: atomic
-    kind: linguistic
-    input:
-      input_as: text
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          text: {type: string}
-    output:
-      output_as: summ
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          summ: {type: string}
-    prompt: "Summarize: {text}"
-  - name: cata
-    type: atomic
-    kind: linguistic
-    input:
-      input_as: text
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          text: {type: string}
-    output:
-      output_as: cata
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          cata: {type: string}
-    prompt: "Categorize: {text}"
+branches:
+  - - summ
+  - - cata
+"""
+
+SUMM_SPEC_YAML = """
+name: summ
+type: atomic
+kind: linguistic
+input:
+  input_as: text
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+output:
+  output_as: summ
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      summ: {type: string}
+prompt: "Summarize: {text}"
+"""
+
+CATA_SPEC_YAML = """
+name: cata
+type: atomic
+kind: linguistic
+input:
+  input_as: text
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+output:
+  output_as: cata
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      cata: {type: string}
+prompt: "Categorize: {text}"
+"""
+
+# Full YAML blocks (composite + its referenced atomics) for load_patterns.
+# Multiple YAML documents separated by "---"; load_patterns returns a list of
+# docs and loads each into the catalog.
+SMALL_SEQUENCE_FULL_YAML = f"""
+{TOOL_SPEC_YAML}
+---
+{LINGUISTIC_SPEC_YAML}
+---
+{COMPOSITE_SEQUENCE_YAML}
+"""
+
+PARALLEL_FULL_YAML = f"""
+{SUMM_SPEC_YAML}
+---
+{CATA_SPEC_YAML}
+---
+{COMPOSITE_PARALLEL_YAML}
 """
 
 
@@ -197,36 +231,32 @@ def test_linguistic_agent_spec_schema1_loads() -> None:
 
 
 def test_sequence_composite_schema1_loads() -> None:
-    """A Schema 1 sequence composite loads with child specs."""
-    catalog = load_patterns(SMALL_SEQUENCE_YAML)
+    """A Schema 1 composite (single-branch) loads with bare pattern names."""
+    catalog = load_patterns(SMALL_SEQUENCE_FULL_YAML)
     spec = catalog.get("extract_and_summarize")
     assert spec is not None
     assert spec.name == "extract_and_summarize"
     assert spec.type is AgentType.COMPOSITE
-    assert spec.kind is AgentKind.SEQUENCE
+    assert spec.kind is None
     assert spec.input.input_as == "payload"
     assert spec.output.output_as == "result"
-    assert spec.sequence is not None
-    assert len(spec.sequence) == 2
-    assert spec.sequence[0].name == "extract"
-    assert spec.sequence[0].kind is AgentKind.TOOL
-    assert spec.sequence[1].name == "summarize"
-    assert spec.sequence[1].kind is AgentKind.LINGUISTIC
+    assert spec.branches is not None
+    assert len(spec.branches) == 1
+    assert spec.branches[0] == ["extract", "summarize"]
 
 
 def test_parallel_composite_schema1_loads() -> None:
-    """A Schema 1 parallel composite loads with child specs."""
-    catalog = load_patterns(PARALLEL_YAML)
+    """A Schema 1 composite (multi-branch) loads with bare pattern names."""
+    catalog = load_patterns(PARALLEL_FULL_YAML)
     spec = catalog.get("distribute_summary")
     assert spec is not None
     assert spec.name == "distribute_summary"
     assert spec.type is AgentType.COMPOSITE
-    assert spec.kind is AgentKind.PARALLEL
-    assert spec.parallel is not None
-    assert len(spec.parallel) == 2
-    assert spec.parallel[0].name == "summ"
-    assert spec.parallel[0].kind is AgentKind.LINGUISTIC
-    assert spec.parallel[1].name == "cata"
+    assert spec.kind is None
+    assert spec.branches is not None
+    assert len(spec.branches) == 2
+    assert spec.branches[0] == ["summ"]
+    assert spec.branches[1] == ["cata"]
 
 
 def test_mandatory_contracts_enforced() -> None:
@@ -284,30 +314,27 @@ def test_text_type_has_no_schema() -> None:
         )
 
 
-def test_parallel_children_bind_only_from_entry() -> None:
-    """Parallel children must resolve parameters from parent's input_as only."""
-    # This test validates the loader enforces the parallel rule
-    catalog = load_patterns(PARALLEL_YAML)
+def test_composite_branches_are_bare_pattern_names() -> None:
+    """Composite branches contain bare pattern names, not inline specs."""
+    catalog = load_patterns(PARALLEL_FULL_YAML)
     spec = catalog.get("distribute_summary")
     assert spec is not None
-    assert spec.parallel is not None
-    # Both children use {text} which comes from parent's input_as "payload"
-    # This should work
-    for child in spec.parallel:
-        assert child.input.input_as == "text"
-        # The {text} path resolves from parent's input_as "payload"
+    assert spec.branches is not None
+    for branch in spec.branches:
+        for step in branch:
+            assert isinstance(step, str)
 
 
 def test_chain_wide_dotted_path_resolution() -> None:
     """A tool parameter can resolve against any earlier producer in chain."""
-    # In SMALL_SEQUENCE_YAML, summarize uses {entities} from extract's output_as
-    catalog = load_patterns(SMALL_SEQUENCE_YAML)
+    # In SMALL_SEQUENCE_FULL_YAML, the composite references "extract" and "summarize"
+    # as bare names; the chain resolution is done at runtime by the loader
+    # (validate_agent_spec checks branch names resolve against the catalog)
+    catalog = load_patterns(SMALL_SEQUENCE_FULL_YAML)
     spec = catalog.get("extract_and_summarize")
     assert spec is not None
-    assert spec.sequence is not None
-    summarize = spec.sequence[1]
-    # summarize's prompt uses {entities} which is in extract's output_as "extracted"
-    assert summarize.prompt == "Summarize these entities: {entities}"
+    assert spec.branches is not None
+    assert spec.branches[0] == ["extract", "summarize"]
 
 
 def test_reuse_by_position() -> None:
@@ -316,18 +343,15 @@ def test_reuse_by_position() -> None:
     # agent definition (not shown here; would need a catalog with shared specs)
 
 
-def test_starting_route_sequence() -> None:
-    """starting_route returns ordered (class, input_as) pairs for a sequence."""
+def test_starting_route_composite_single_branch() -> None:
+    """starting_route returns (name, input_as) for a single-branch composite."""
     from legio.patterns import starting_route
 
-    catalog = load_patterns(SMALL_SEQUENCE_YAML)
+    catalog = load_patterns(SMALL_SEQUENCE_FULL_YAML)
     spec = catalog.get("extract_and_summarize")
     assert spec is not None
     route = starting_route(spec)
-    assert route == (
-        ("extract", "text"),
-        ("summarize", "extracted"),
-    )
+    assert route == (("extract_and_summarize", "payload"),)
 
 
 def test_starting_route_atomic() -> None:
@@ -348,12 +372,12 @@ def test_starting_route_atomic() -> None:
     assert route == (("single_tool", "x"),)
 
 
-def test_starting_route_starts_parallel_root_on_its_own_class() -> None:
-    """A parallel root is a starting agent: the submit delivers to its own
-    class and the ParallelAgent concretizes the fan-out (decoupled, LEG-043)."""
+def test_starting_route_composite_multi_branch() -> None:
+    """A composite root is a starting agent: the submit delivers to its own
+    class and the composite runner concretizes the fan-out (decoupled, LEG-044)."""
     from legio.patterns import starting_route
 
-    catalog = load_patterns(PARALLEL_YAML)
+    catalog = load_patterns(PARALLEL_FULL_YAML)
     spec = catalog.get("distribute_summary")
     assert spec is not None
     assert starting_route(spec) == (("distribute_summary", "payload"),)

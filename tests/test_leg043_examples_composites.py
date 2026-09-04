@@ -1,18 +1,16 @@
-"""Contract tests for LEG-043 — Composite examples (R-4, domain-free).
+"""Contract tests for LEG-043 — Composite examples (R-4/LEG-044, domain-free).
 
 Two in-repo examples that prove the R-4 engine end-to-end over REST
 (LEG-025/LEG-027), as a client would drive them:
 
-- ``extract_and_summarize`` — a **sequence** (linguistic → tool): a linguistic
-  step produces structured output via lingo (``output_schema`` → compiled pydantic
-  model passed to ``lingo.create``; ``input_schema`` governs the prompt template),
-  then a tool step consumes it.
-- ``distribute_summary`` — a **parallel root**: the submit delivers to the
-  parallel's own class (a dumb delivery point — it never resolves the DAG), the
-  ParallelAgent fans out to its branches and joins them on all-complete.
+- ``extract_and_summarize`` — a composite with **one branch** (a sequence),
+  linguistic → tool.
+- ``distribute_summary`` — a composite with **two branches** (a parallel root),
+  two linguistic branches joined on all-complete.
 
-Both run on real beaver through the decoupled polling model: each agent is
-booted at node startup with its own queue, polls it, and routes by the token.
+Both run on the **same unified CompositeAgent runner** (LEG-040/LEG-044): the
+submit delivers to the composite's own class (a dumb delivery point — it never
+resolves the DAG), the CompositeAgent fans out its branches and joins them.
 No central engine; nothing is loaded dynamically at submit time.
 """
 
@@ -26,19 +24,66 @@ from beaver import AsyncBeaverDB
 from lingo.mock import MockLLM
 from pydantic import BaseModel
 
+from legio.agents.composite_agent import CompositeAgent
 from legio.agents.linguistic_agent import LinguisticAgent
-from legio.agents.parallel_agent import ParallelAgent
 from legio.agents.tool_agent import ToolAgent
 from legio.api import create_app
 from legio.naming import result_queue_key
-from legio.patterns import load_patterns
+from legio.patterns import load_patterns, resolve_composite_branches
 from legio.security import ClientTokenStore
 from legio.tools import AvailableToolsRegistry
 
-EXTRACT_AND_SUMMARIZE_YAML = """
+FULL_EXTRACT_YAML = """
+name: extract
+type: atomic
+kind: linguistic
+input:
+  input_as: payload
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+      lang: {type: string}
+output:
+  output_as: extract
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      title: {type: string}
+      summary: {type: string}
+      word_count: {type: integer}
+prompt: "Extract the key points of {text} in {lang}."
+---
+name: assess
+type: atomic
+kind: tool
+input:
+  input_as: extract
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      title: {type: string}
+      summary: {type: string}
+output:
+  output_as: result
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      result: {type: string}
+tool: assess
+parameters:
+  title: "{title}"
+  summary: "{summary}"
+"""
+
+EXTRACT_AND_SUMMARIZE_YAML = FULL_EXTRACT_YAML + """
+---
 name: extract_and_summarize
 type: composite
-kind: sequence
 main: true
 input:
   input_as: payload
@@ -55,56 +100,52 @@ output:
     type: object
     properties:
       result: {type: string}
-sequence:
-  - name: extract
-    type: atomic
-    kind: linguistic
-    input:
-      input_as: payload
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          text: {type: string}
-          lang: {type: string}
-    output:
-      output_as: extract
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          title: {type: string}
-          summary: {type: string}
-          word_count: {type: integer}
-    prompt: "Extract the key points of {text} in {lang}."
-  - name: assess
-    type: atomic
-    kind: tool
-    input:
-      input_as: extract
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          title: {type: string}
-          summary: {type: string}
-    output:
-      output_as: result
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          result: {type: string}
-    tool: assess
-    parameters:
-      title: "{extract.title}"
-      summary: "{extract.summary}"
+branches:
+  - - extract
+    - assess
 """
 
 DISTRIBUTE_SUMMARY_YAML = """
+name: summ
+type: atomic
+kind: linguistic
+input:
+  input_as: text
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+output:
+  output_as: summ
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      summ: {type: string}
+prompt: "Summarize: {text}"
+---
+name: cata
+type: atomic
+kind: linguistic
+input:
+  input_as: text
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+output:
+  output_as: cata
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      cata: {type: string}
+prompt: "Categorize: {text}"
+---
 name: distribute_summary
 type: composite
-kind: parallel
 main: true
 input:
   input_as: payload
@@ -121,43 +162,9 @@ output:
     properties:
       summ: {type: string}
       cata: {type: string}
-parallel:
-  - name: summ
-    type: atomic
-    kind: linguistic
-    input:
-      input_as: text
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          text: {type: string}
-    output:
-      output_as: summ
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          summ: {type: string}
-    prompt: "Summarize: {text}"
-  - name: cata
-    type: atomic
-    kind: linguistic
-    input:
-      input_as: text
-      input_type: json
-      input_schema:
-        type: object
-        properties:
-          text: {type: string}
-    output:
-      output_as: cata
-      output_type: json
-      output_schema:
-        type: object
-        properties:
-          cata: {type: string}
-    prompt: "Categorize: {text}"
+branches:
+  - - summ
+  - - cata
 """
 
 
@@ -194,11 +201,15 @@ def build_tool_registry() -> AvailableToolsRegistry:
     return registry
 
 
-def build_sequence_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent]:
+def build_sequence_agents(
+    db: AsyncBeaverDB,
+) -> tuple[CompositeAgent, LinguisticAgent, ToolAgent]:
+    """Boot the unified composite (single branch) + its standing atomic agents."""
     lingo_client = MockLLM(
         responses=[ExtractOutput(title="Foxes", summary="A note about foxes.", word_count=4)]
     )
     registry = build_tool_registry()
+
     extract = LinguisticAgent(
         agent_id="extract",
         db=db,
@@ -217,17 +228,23 @@ def build_sequence_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
         input_as="extract",
         output_as="result",
     )
-    return extract, assess
 
-
-def build_parallel_agents(db: AsyncBeaverDB) -> tuple[ParallelAgent, LinguisticAgent, LinguisticAgent]:
-    par = ParallelAgent(
-        agent_id="distribute_summary",
+    catalog = load_patterns(EXTRACT_AND_SUMMARIZE_YAML)
+    branches = resolve_composite_branches(catalog.specs["extract_and_summarize"], catalog)
+    comp = CompositeAgent(
+        agent_id="extract_and_summarize",
         db=db,
-        branches=[("summ", "text"), ("cata", "text")],
+        branches=branches,
         input_as="payload",
         output_as="result",
     )
+    return comp, extract, assess
+
+
+def build_parallel_agents(
+    db: AsyncBeaverDB,
+) -> tuple[CompositeAgent, LinguisticAgent, LinguisticAgent]:
+    """Boot the unified composite (two branches) + its standing atomic agents."""
     summ = LinguisticAgent(
         agent_id="summ",
         db=db,
@@ -246,6 +263,18 @@ def build_parallel_agents(db: AsyncBeaverDB) -> tuple[ParallelAgent, LinguisticA
         input_as="text",
         output_as="cata",
     )
+
+    catalog = load_patterns(DISTRIBUTE_SUMMARY_YAML)
+    branches = resolve_composite_branches(
+        catalog.specs["distribute_summary"], catalog
+    )
+    par = CompositeAgent(
+        agent_id="distribute_summary",
+        db=db,
+        branches=branches,
+        input_as="payload",
+        output_as="result",
+    )
     return par, summ, cata
 
 
@@ -254,7 +283,7 @@ async def test_extract_and_summarize_sequence_over_rest(
     caplog: pytest.LogCaptureFixture, beaver_db: AsyncBeaverDB
 ) -> None:
     caplog.set_level(logging.INFO)
-    extract, assess = build_sequence_agents(beaver_db)
+    comp, extract, assess = build_sequence_agents(beaver_db)
     pattern_catalog = load_patterns(EXTRACT_AND_SUMMARIZE_YAML)
 
     store = ClientTokenStore()
@@ -275,15 +304,22 @@ async def test_extract_and_summarize_sequence_over_rest(
         assert resp.status_code == 200, resp.text
         task_id = resp.json()["task_id"]
 
-        await extract.run()
-        await assess.run()
+        # The composite fans out its single branch; run the branch steps and
+        # the composite's fan-in repeatedly to a standstill.
+        for _ in range(4):
+            await comp.run()
+            await extract.run()
+            await assess.run()
+            await comp.run()
 
         status_resp = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
         assert status_resp.status_code == 200, status_resp.text
         entry = status_resp.json()
         assert entry["state"] == "completed"
         assert entry["result_key"] == result_queue_key(task_id)
-        assert entry["output"]["result"]["result"] == "[Foxes] A note about foxes."
+        # sequence branch: assess produced {"result": "..."} under its output_as,
+        # the composite gathered it under its own output_as "result"
+        assert entry["output"]["result"]["result"]["result"] == "[Foxes] A note about foxes."
 
 
 @pytest.mark.asyncio
@@ -312,10 +348,10 @@ async def test_distribute_summary_parallel_root_over_rest(
         assert resp.status_code == 200, resp.text
         task_id = resp.json()["task_id"]
 
-        # The submit delivered to the parallel's own class (dumb delivery point).
+        # The submit delivered to the composite's own class (dumb delivery point).
+        # Run the composite fan-out, then the branch agents and the composite's
+        # fan-in repeatedly, interleaving so the composite can collect returns.
         await par.run()
-        # Run both branches to a standstill, repeatedly interleaving so the
-        # parallel can collect returns from its gathering queue.
         for _ in range(3):
             await summ.run()
             await cata.run()
@@ -326,6 +362,6 @@ async def test_distribute_summary_parallel_root_over_rest(
         entry = status_resp.json()
         assert entry["state"] == "completed"
         assert entry["result_key"] == result_queue_key(task_id)
-        # the joined branches are gathered under the parallel's output_as "result"
+        # the joined branches are gathered under the composite's output_as "result"
         assert entry["output"]["result"]["summ"]["summ"] == "a summary"
         assert entry["output"]["result"]["cata"]["cata"] == "a category"
