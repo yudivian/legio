@@ -450,13 +450,11 @@ parameters:                                   # kind: tool; terse call (§4.10.4
 prompt: "<template with {var}>"               # kind: linguistic
 
 # Interior — COMPOSITE only (type: composite)
-branches:                                     # list of branches; each branch is an ordered list of steps
-  - - pattern: <name>                         #   step: reference ONLY (no inline, no nested branches)
-      input_as: <alias>                       #   equals that pattern's declared input_as (validated)
-    - pattern: <name>                         #   no output_as here: it is always the referenced agent's
-      input_as: <alias>
-  - - pattern: <name>
-      input_as: <alias>
+branches:                                     # list of branches; each branch an ordered list of PATTERN NAMES
+  - - <pattern-name>                          #   step: a BARE reference to a defined agent — by name only
+    - <pattern-name>                          #   a composite-name step = inner ramification (reuse by ref)
+  - - <pattern-name>
+    - <pattern-name>
 ```
 
 **Branch-exclusive fields, structurally enforced.** `type: atomic` → `kind:
@@ -530,24 +528,25 @@ errors.
   (structured output / validation against `output_schema`), or the contract is
   a promise that nothing checks (rule 9).
 - **Composites.** A composite is `type: composite` with `branches` — a list of
-  branches, each an ordered list of **steps**. A step is exactly
-  `{pattern: <name>, input_as: <alias>}`: a reference to a defined pattern (no
-  inline definition), with `input_as` validated to equal the referenced
-  pattern's declared `input_as`; there is no `output_as` on a step — it is
-  always the referenced agent's own (internal, never travels), and the handoff
-  re-keys the producer's value under the next step's `input_as`. There are **no
-  nested `branches`** and **no inline nodes**: to express inner branching, a
-  step's `pattern` references a `type: composite` agent. There is no `emit:`
-  and no "last child renamed": **how a composite combines its children's
-  results into its own output is the agent's implementation**, and the declared
+  branches, each an ordered list of **steps**. A step is a **bare pattern name**
+  (a reference to a defined agent); there is no inline definition and no
+  `input_as`/`output_as` written on the step. The `(class, input_as)` pair that
+  the route needs is **resolved by the loader** when it builds the DAG of each
+  level/branch (Schema 2); the `input_as` under which a step reads in its
+  specific use is derived there, never typed in the agent definition. There are
+  **no nested `branches`** and **no inline nodes**: to express inner branching,
+  a step's name references a `type: composite` agent. There is no `emit:` and no
+  "last child renamed": **how a composite combines its children's results into
+  its own output is the agent's implementation**, and the declared
   `output_as`/`output_schema` is the contract that implementation must satisfy.
 
 #### 4.10.5 Reuse belongs to every definition, and encapsulation
 
 Any agent — atomic or composite — is defined once, **source-agnostic**, and is
-**wired at the usage site**: a composite references it as a step with
-`pattern: <name>` + `input_as`, and the handoff re-keys the produced value to
-each step's `input_as`. The same definition used in different composites binds
+**wired at the usage site**: a composite references it by name as a step, and
+the loader resolves each step's `(class, input_as)` when it builds the DAG; the
+handoff re-keys the produced value under the consuming step's (resolved)
+`input_as`. The same definition used in different composites binds
 to different inputs; the interior never changes. The **same agent may appear
 more than once in a flow by position** — distinguished by `current_index` —
 unless inside its own definition (cycle → infinite recursion, rejected at
@@ -574,11 +573,12 @@ no `emit:` map and no "last child renamed" rule. A composite fans out to its
 implementation assembles the declared output from them. The contract is the
 guarantee the implementation must satisfy; nothing more is specified.
 
-A composite's steps bind from the composite's `input_as` (each step's
-`input_as` re-keys from the composite's input or a prior sibling's produced
-value); any serial dependency between steps is expressed by order within a
+A composite's steps bind from the composite's `input_as` (the loader resolves,
+per step, the `(class, input_as)` pair under which it reads, re-keying from the
+composite's input or a prior sibling's produced value); any serial dependency
+between steps is expressed by order within a
 branch, and any parallel split is another branch — there are no nested
-`branches`; an inner split is a step whose `pattern` is itself a `type:
+`branches`; an inner split is a step whose name references a `type:
 composite` agent (no hidden ordering, no races).
 
 #### 4.10.7 `main` = root capability, not position
@@ -586,7 +586,8 @@ composite` agent (no hidden ordering, no races).
 `main: true` marks an agent as a valid `submit` entry. At submit the flow is
 seeded on the `main` agent in **level 1** with `end_of_level_queue` set to the
 **final-result queue** (Schema 2). A `main` agent may also appear
-in the middle of another DAG (`pattern: <name>`): there it executes its
+in the middle of another DAG (referenced by name as a step): there it executes
+its
 functionality as part of the enclosing flow and advances, returning to the
 client only when the flow started at it. A catalog may declare several `main`
 agents. `main` never changes the contract or the calling mechanism; it is
@@ -596,7 +597,9 @@ identity/capability, not position.
 
 Because every agent declares its entry and output contracts, the loader
 verifies the catalog statically: every `branches` step resolves against a
-declared pattern whose `input_as` matches; every use satisfies the used agent's
+declared pattern, and the loader builds each level/branch route as
+`(class, input_as)` with the consuming steps' `input_as` satisfiable by the
+producers; every use satisfies the used agent's
 entry contract with statically compatible types; `output_as` names are unique
 per scope; interiors cohere with their contracts (vocabulary
 above); and there are no cycles. A catalog with an invalid spec **fails at
@@ -617,8 +620,12 @@ One spec for every agent, symmetric mandatory contracts. Unified model:
 of an atomic (`tool` | `linguistic`); a composite is identified by
 `type: composite` + `branches` (no `sequence`/`parallel` kinds). No inline
 definitions and no nested `branches` — every agent is defined once as a
-`pattern` and referenced by `pattern: <name>`; inner branching is expressed by
-referencing a `type: composite` pattern. Approved vocabulary (`emit`/`bind`/
+`pattern` and referenced **by name**; inner branching is expressed by
+referencing (by name) a `type: composite` pattern. A step in a composite is a
+**bare pattern name** — it carries no `input_as`/`output_as`, because those are
+the agent's own contract and the `(class, input_as)` routing pair is resolved
+by the loader when it builds the DAG of each level/branch (Schema 2), not
+declared in the agent definition. Approved vocabulary (`emit`/`bind`/
 `children` are NOT approved):
 
 ```yaml
@@ -628,11 +635,11 @@ name: <id>                      # MANDATORY, every agent
 description: <text>             # optional
 main: bool                      # root capability (identity), NOT position
 # entry contract — MANDATORY for every agent
-input_as: <alias>               # names the incoming payload space (anti-convention)
+input_as: <alias>               # names THIS agent's incoming payload space
 input_type: text | json | binary
 input_schema:                   # mandatory (json: object with required/properties)
 # output contract — MANDATORY for every agent
-output_as: <alias>              # names the deposited payload space (destination)
+output_as: <alias>              # names THIS agent's deposited payload space (destination)
 output_type: text | json | binary
 output_schema:                  # mandatory (json: object with required/properties)
 # interior — ATOMIC only, by kind
@@ -640,18 +647,17 @@ tool: <available_tools-key>     # kind: tool; the CALL and the code's signature
 parameters:                     # kind: tool; arg -> {input_as}.{key} | literal (no from/value/default)
 prompt: "<template with {var}>" # kind: linguistic
 # interior — COMPOSITE only (type: composite)
-branches:                       # list of branches; each branch is an ordered list of steps
-  - - pattern: <name>           #   step: reference ONLY (no inline), to a defined pattern
-      input_as: <alias>         #   equals that pattern's declared input_as (validated)
-    - pattern: <name>           #   no output_as: it is always the referenced agent's (re-keying)
-      input_as: <alias>
-  - - pattern: <name>
-      input_as: <alias>
+branches:                       # list of branches; each branch an ordered list of PATTERN NAMES
+  - - <pattern-name>            #   step: a BARE reference to a defined agent — by name only
+    - <pattern-name>            #   a composite-name step = inner ramification (reuse by ref)
+  - - <pattern-name>
+    - <pattern-name>
 ```
 
 - Contract of entry and output are **mandatory for every agent** — atomic and
   composite — the full triples (`as`/`type`/`schema`), strict symmetry, no
-  exceptions.
+  exceptions. Each agent's `input_as`/`output_as` name **its own** payload
+  space; they are not routing fields.
 - `type: atomic` → `kind: tool` or `kind: linguistic`; `type: composite` → must
   carry `branches` and no `kind`. A tool branch cannot carry `prompt`; a
   linguistic branch cannot carry `tool`; atomic kinds are exclusive; a
@@ -668,14 +674,14 @@ branches:                       # list of branches; each branch is an ordered li
   input content; the alias is written out. The `input_as` written must match
   this agent's declared `input_as`, and `key` must exist in its `input_schema`.
   A literal needs no producer.
-- **Steps reference, they never define.** A step in `branches` is exactly
-  `{pattern: <name>, input_as: <alias>}`: a reference to a defined pattern,
-  with `input_as` validated to equal the referenced pattern's declared
-  `input_as`. There is no inline definition and no nested `branches`. To get
-  inner branching in a step, that step's `pattern` is a `type: composite` agent
-  (reuse by reference, recurse). No `output_as` is declared on a step — it is
-  always the referenced agent's own `output_as` (internal, never travels); the
-  handoff re-keys the producer's value under the next step's `input_as`.
+- **Steps reference, they never define.** A step in `branches` is a **bare
+  pattern name** — a reference to a defined agent; there is no inline
+  definition, no nested `branches`, and **no `input_as`/`output_as` written on
+  the step**. To get inner branching in a step, that step's name references a
+  `type: composite` agent (reuse by reference, recurse). The `(class, input_as)`
+  pair that the route needs is **resolved by the loader** when it builds the DAG
+  of each level/branch (Schema 2): the `input_as` under which a step reads in
+  its specific use is derived there, never typed in the agent definition.
 - **Reuse:** a definition is unique; each use in a composite is a distinct
   node. Same-class agents may appear more than once in a flow (by position),
   unless in their own definition (cycle → infinite recursion, rejected at
@@ -694,37 +700,40 @@ by position. No results store — the final destination is the final-result queu
 | Field | Role |
 |---|---|
 | `schema_version` | int, `1000`; mismatch → reject. |
-| `level_route` | tuple of classes — the route of this level (a branch or sub-sequence). |
+| `level_route` | tuple of `(class, input_as)` — the route of this level (a branch or sub-sequence), resolved by the loader when it builds the DAG of each level/branch. |
 | `current_index` | int, 0-based position of the class processing in `level_route` (advance `+1` = next). |
-| `end_of_level_queue` | queue at the end of this level's sequence — created by the **submit** (final-result queue) or by a **parallel** (its gathering queue). |
+| `end_of_level_queue` | queue at the end of this level's sequence — created by the **submit** (final-result queue) or by a **composite** (its gathering queue). |
 | `level` | branch-depth counter: starts at 1; branching +1; leaving a branch −1. End-of-sequence AND `level == 1` ⇒ flow finished. |
 | `launcher_class` | class of the agent that started the flow; constant, informational, not control. |
 | `task_id` | str, the process's public id. |
-| `branch_id` | str, a parallel's branch slot identity: autogenerated by the parallel at fan-out, constant along the branch's sequence, distinct per branch at the same level of the same task, and preserved unchanged through the branch's whole execution; empty (default) for non-branch messages. |
+| `branch_id` | str, a composite's branch slot identity: autogenerated by the composite at fan-out, constant along the branch's sequence, distinct per branch at the same level of the same task, and preserved unchanged through the branch's whole execution; empty (default) for non-branch messages. |
 | `message_type` | enum `execution_request` \| `execution_result`. |
 | `payload` | the data (single container for both roles). |
 
 - **Advance (request):** `current_index < len(level_route)-1` → deliver `payload`
-  to class `level_route[current_index+1]` (by position, no next_queue field).
+  to class `level_route[current_index+1]` (by position, no next_queue field),
+  **re-keying the produced value under `level_route[current_index+1].input_as`**
+  (§12.1).
 - **End-of-level:** `current_index == len(level_route)-1` → deliver to
   `end_of_level_queue`.
 - **Flow end:** end-of-sequence AND `level == 1` ⇒ final: deliver to
   `end_of_level_queue` (= the final-result queue set by the submit). Nothing more
   is routed.
-- **Parallel (branching):** a parallel class receives its request and does not
+- **Composite (branching):** a composite class receives its request and does not
   advance while its branches run; it fans out giving each branch its `level_route`
-  and `current_index = 0`, incrementing `level` (+1), and assigning each branch
+  (the loader-resolved `(class, input_as)` route) and `current_index = 0`,
+  incrementing `level` (+1), and assigning each branch
   an autogenerated `branch_id` (distinct per branch at this level, constant along
   the branch's sequence, carried on the message). Branches
-  return to the parallel's **gathering queue** via their `end_of_level_queue`;
+  return to the composite's **gathering queue** via their `end_of_level_queue`;
   the returning result's `branch_id` names the join slot (so a multi-step branch,
   whose returned `level_route` expands to its own internal stages, still slots
-  under the parent-assigned id). On fan-in completion the parallel decrements
+  under the parent-assigned id). On fan-in completion the composite decrements
   `level` (−1) and resumes its own level (`current_index + 1` → next of its
   level), with `end_of_level_queue` the one its creator supplied.
-- **Parallel as root:** submit passes its sequence as level 1 with
+- **Composite as root:** submit passes its route as level 1 with
   `end_of_level_queue` = final-result queue; branches run at level 2 with
-  gathering; after fan-in the parallel advances its level-1 sequence with the
+  gathering; after fan-in the composite advances its level-1 route with the
   submit's final-result queue.
 - **`root`** lives in the FlowToken (subclassing the message), not in the queue
   message; `end_of_level_queue` = final-result queue is the store-free return
@@ -1301,26 +1310,25 @@ queue.
   **not** a task and **not** a recorded TM identity (its identity lives in the
   catalog, §4.8).
 
-### 12.3 Sequence is forward-only; parallel has a gathering queue
+### 12.3 A composite has one gathering queue; branches route by position and level
 
-The model distinguishes the two composites *conceptually* (implementation may
-collapse one physical queue with message-type dispatch — that is an
-implementation detail, not the model):
+The model has **one composite** (`type: composite` + `branches`, §4.10.4/§4.11),
+not the two conceptual ones of the earlier model. There is no separate
+"sequence" vs "parallel"; a composite with a single branch is a sequence, one
+with several branches is a parallel — both are the same agent, the same runner.
 
-- **Sequence.** Pure forward pass: nothing returns to the sequence itself. The
-  step advances **by position**: if `current_index < len(level_route)-1` the next
-  step deposits into class `level_route[current_index+1]`; if it is the
-  **end-of-level** (`current_index == len-1`) it deposits to
-  `end_of_level_queue`. **No gathering queue.**
-- **Parallel.** Two queues in the model: the class **inbox** and a
-  **gathering queue** for the fan-in of the branched tasks (§12.4). The second
-  queue belongs to the parallel class, not to an individual task, not to a
-  parent. The parallel's `end_of_level_queue` **is** its gathering queue in the
-  tokens it fans out (Schema 2): branches return there by position/level.
-
-Both composites are themselves classes with their own queue/instances (§7,
-dependencies); a composite is invoked like any capability agent — through its
-inbox.
+- The composite has **one gathering queue** for the fan-in of its branches.
+- Each **branch** is an ordered list of steps (each step a bare pattern-name
+  reference); a branch of size 1 (an atomic) advances and closes; a branch
+  whose steps reference a `type: composite` opens inner ramification. The
+  step's `(class, input_as)` route is resolved by the loader when it builds the
+  level/branch DAG (Schema 2).
+- The composite's `end_of_level_queue`, in the tokens it fans out, **is** its
+  gathering queue (Schema 2): branches return there by position/level.
+- A composite is itself a class with its own queue/instances (§7, dependencies);
+  it is invoked like any capability agent — through its inbox.
+- There is no out-of-message accumulator; fan-in accounting lives in the
+  composite's per-class state (§12.4).
 
 ### 12.4 The flow: one advancement rule, fan-out and fan-in
 
@@ -1332,8 +1340,9 @@ over the token:
 advance(request) for the current step (level_route[current_index]):
   next_index = current_index + 1
   if next_index < len(level_route):
-      # advance within the level's sequence (no next_queue field; position rules)
-      deposit an ExecutionRequestMessage to class level_route[next_index]
+      # advance within the level's route (no next_queue field; position rules)
+      deposit an ExecutionRequestMessage to class level_route[next_index],
+        re-keying the produced value under level_route[next_index].input_as (§12.1)
   else:
       # end-of-level
       if level == 1:
@@ -1346,33 +1355,44 @@ advance(request) for the current step (level_route[current_index]):
 ```
 
 This is the **generalized end rule**: an agent is the flow's end
-when it is the last of its sequence AND `level == 1`, regardless of whether it
-is a sequence step, an atomic, or a parallel — not by any `client:` store
+when it is the last of its `level_route` AND `level == 1`, regardless of whether it
+is a branch step, an atomic, or a composite — not by any `client:` store
 mechanism. `end_of_level_queue` is assigned by the flow creator (the **submit**
-sets it to the final-result queue; a **parallel** sets it to its own gathering
+sets it to the final-result queue; a **composite** sets it to its own gathering
 queue for its branches); the agent never decides the destination (Schema 2).
 
-**Parallel fan-out.** On receiving its request, a parallel does **not** advance
-while its branches run. It fans out giving each branch its own `level_route`,
-`current_index = 0`, `end_of_level_queue` = the parallel's **gathering queue**,
-and `level + 1`. Fan-in results land in the gathering queue and the parallel
-**builds its payload** from the branch results (projecting each under its
-`output_as`; collisions resolved via `output_as` namespacing).
-On **fan-in completion** the parallel decrements `level` (−1) and resumes its
-own level (`current_index + 1` → next of its level), with `end_of_level_queue`
-the one its creator supplied. Parallel-as-root (submit as the parallel's creator)
-passes the parallel's sequence as level 1 with `end_of_level_queue` =
-final-result queue.
+**Composite fan-out.** On receiving its request, a composite does **not** advance
+while its branches run. It fans out: for each branch it deposits that branch's
+**loader-resolved `level_route`** (its `(class, input_as)` steps) with
+`current_index = 0`, `end_of_level_queue` = the composite's **gathering queue**,
+`level + 1`, and an **autogenerated `branch_id`** (the branch's slot identity,
+distinct per branch at this level, constant along the branch's sequence, carried
+on the message). It also re-keys the composite's shared `input_as` under the
+first step's (resolved) `input_as` for that branch (§12.1).
+
+**Fan-in.** Each branch, on branch close, deposits its
+`ExecutionResultMessage` to the gathering queue **conserving its `branch_id`**
+(failures conserve it too — an `error` result, rule 9). The composite
+contabilizes fan-in **one result per `branch_id`**: its gathering bookkeeping is
+keyed by `(task_id, branch_id)`, under a lock. On **fan-in completion** (all of
+the task's `branch_id`s accounted for) the composite **builds its payload**
+from the branch results (its declared `output_as`, mapped in Fase 2),
+decrements `level` (−1) and resumes its own level (`current_index + 1` → next
+of its level), with `end_of_level_queue` the one its creator supplied.
+Composite-as-root (submit as the composite's creator) passes the composite's
+route as level 1 with `end_of_level_queue` =
+final-result queue; branches run at level 2; after fan-in it resumes its own
+level-1 route with the final-result queue.
 
 **Where does "am I finished/fan-in complete" live?** In the per-class
-**gathering bookkeeping** of the parallel (`state:parallel:<class>`, keyed by
-task, under a lock, as in the reference), not in an out-of-message accumulator
-and not in any central engine. A sequence needs no such bookkeeping at all
-(§12.3).
+**gathering bookkeeping** of the composite (`state:<composite>`, keyed by
+`(task_id, branch_id)`, under a lock, as in the reference), not in an
+out-of-message accumulator and not in any central engine. A branch of size 1
+with no ramification needs no such bookkeeping (§12.3).
 
 **Failure and fan-in.** A child failure becomes an `ExecutionResultMessage`
 with an `error` payload through the existing failure path (§7/ARCH §8, rule 9):
-the parallel accounts for it and the parent flow
+the composite accounts for it (conserving its `branch_id`) and the parent flow
 continues or fails visibly. Errors are
 never silent.
 

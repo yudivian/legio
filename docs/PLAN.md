@@ -183,19 +183,19 @@ are red for the yet-unimplemented surface.
   branch's **own** `level_route` (not a single class), so a branch may be
   atomic / sequence / composite. Construction + re-keying model (Session 20);
   flow contract = starting agent's `input_as`/`output_as`.
-  - **Closed vocabulary (Session 23 discussion):** `name` mandatory in every
+  - **Closed vocabulary (Session 23-24 discussion):** `name` mandatory in every
     agent; `type: atomic|composite`; `kind` only `tool|linguistic` (atomic
     interior); a composite is `type: composite` + `branches`, no `kind`. Every
     agent declares the full entry + output triples
     `(input_as/input_type/input_schema, output_as/output_type/output_schema)`.
     `parameters` dotted paths are **mandatorily explicit** `{input_as}.{key}`
     (the agent's own `input_as` + a key of its `input_schema`); no implicit
-    resolution. **No inline definitions, no nested `branches`** — every agent is
-    defined once as a `pattern`; a step is exactly `{pattern: <name>,
-    input_as: <alias>}` with `input_as` validated against the referenced
-    pattern's declared `input_as`; no `output_as` on a step (always the
-    referenced agent's, internal → re-keying). Inner branching is a step whose
-    `pattern` is a `type: composite`.
+    resolution. **No inline definitions, no nested `branches`, and a step in a
+    composite is a bare pattern name — it carries no `input_as`/`output_as`.**
+    The `(class, input_as)` pair a route needs is **not declared in the agent
+    definition**: the loader resolves it when it builds the DAG of each
+    level/branch (Schema 2). Inner branching is a step whose `pattern` is a
+    `type: composite`.
   - **Plan**: `docs/JOURNALS/2026-09-03.md` Session 22 (Fase 0-4). Docs first
     (AGENTS.md rule 12), then code, one authorized step at a time.
   - **Accept**: examples behave identically under the unified model; nested
