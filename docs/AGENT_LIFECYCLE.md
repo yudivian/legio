@@ -1394,9 +1394,14 @@ first step's (resolved) `input_as` for that branch (§12.1).
 contabilizes fan-in **one result per `branch_id`**: its gathering bookkeeping is
 keyed by `(task_id, branch_id)`, under a lock. On **fan-in completion** (all of
 the task's `branch_id`s accounted for) the composite **builds its payload**
-from the branch results (its declared `output_as`, mapped in Fase 2),
-decrements `level` (−1) and resumes its own level (`current_index + 1` → next
-of its level), with `end_of_level_queue` the one its creator supplied.
+(its declared `output_as`, from the branch results), decrements `level` (−1) and
+resumes its own level (`current_index + 1` → next of its level), with
+`end_of_level_queue` the one its creator supplied. On this resume the composite
+is just the current node again, so the token leaving it is re-keyed exactly like
+any advance (§12.1): the composite's `output_as` is re-keyed under the next
+step's (resolved) `input_as`. There is no special composite→output remap — the
+fan-in builds the composite's own `output_as`, and the standard re-keying
+applies when the token moves to the next node.
 Composite-as-root (submit as the composite's creator) passes the composite's
 route as level 1 with `end_of_level_queue` =
 final-result queue; branches run at level 2; after fan-in it resumes its own
