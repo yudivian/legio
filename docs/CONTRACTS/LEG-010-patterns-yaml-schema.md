@@ -54,7 +54,7 @@ type: atomic | composite                    # root discriminator; exactly these 
 kind: tool | linguistic                     # interior of ATOMIC only (composites are type: composite)
 name: <id>                                  # MANDATORY, every agent
 description: <text>                         # optional
-main: bool                                  # root capability, NOT position
+main: bool                                  # enables being a starting agent (eligibility, NOT position)
 
 # Entry contract — MANDATORY for every agent
 input_as: <alias>                           # names THIS agent's incoming payload space

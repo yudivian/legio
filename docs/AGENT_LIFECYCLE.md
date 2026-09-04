@@ -427,7 +427,7 @@ type: atomic | composite                      # root discriminator; exactly thes
 kind: tool | linguistic                       # interior of ATOMIC only (composites are type: composite)
 name: <id>                                    # MANDATORY, every agent
 description: <text>                           # optional
-main: bool                                    # optional; root capability, NOT position
+main: bool                                    # enables being a starting agent (eligibility, NOT position)
 
 # Entry contract — MANDATORY for every agent
 input_as: <alias>                             # names the incoming payload space; anti-convention
@@ -581,17 +581,19 @@ branch, and any parallel split is another branch — there are no nested
 `branches`; an inner split is a step whose name references a `type:
 composite` agent (no hidden ordering, no races).
 
-#### 4.10.7 `main` = root capability, not position
+#### 4.10.7 `main` = eligibility to be a starting agent
 
-`main: true` marks an agent as a valid `submit` entry. At submit the flow is
-seeded on the `main` agent in **level 1** with `end_of_level_queue` set to the
+`main: true` enables an agent to be a **starting agent** (a valid `submit`
+entry). At submit the flow is seeded on the chosen `main` agent in **level 1**
+with `end_of_level_queue` set to the
 **final-result queue** (Schema 2). A `main` agent may also appear
 in the middle of another DAG (referenced by name as a step): there it executes
 its
 functionality as part of the enclosing flow and advances, returning to the
 client only when the flow started at it. A catalog may declare several `main`
-agents. `main` never changes the contract or the calling mechanism; it is
-identity/capability, not position.
+agents. `main` is **eligibility**, never position: it never changes the
+contract or the calling mechanism, and it does not decide which agent is used
+where.
 
 #### 4.10.8 Checkable composability (redundancy against the silent)
 
@@ -633,7 +635,7 @@ type: atomic | composite        # root discriminator; exactly these two
 kind: tool | linguistic         # interior of ATOMIC only (composites are type: composite)
 name: <id>                      # MANDATORY, every agent
 description: <text>             # optional
-main: bool                      # root capability (identity), NOT position
+main: bool                      # enables being a starting agent (eligibility, NOT position)
 # entry contract — MANDATORY for every agent
 input_as: <alias>               # names THIS agent's incoming payload space
 input_type: text | json | binary
@@ -682,6 +684,13 @@ branches:                       # list of branches; each branch an ordered list 
   pair that the route needs is **resolved by the loader** when it builds the DAG
   of each level/branch (Schema 2): the `input_as` under which a step reads in
   its specific use is derived there, never typed in the agent definition.
+- **`main` enables being a starting agent.** A catalog may declare several
+  `main: true` agents; each is an **eligible starting agent**. At submit the
+  flow is seeded on the chosen `main` agent in level 1 with `end_of_level_queue`
+  = the final-result queue; the input contract (its `input_as`) is the flow's
+  input and its output contract (its `output_as`) is the flow's output (§12.1).
+  `main` is eligibility, not position — a `main` agent may also be referenced by
+  name as a step mid-DAG.
 - **Reuse:** a definition is unique; each use in a composite is a distinct
   node. Same-class agents may appear more than once in a flow (by position),
   unless in their own definition (cycle → infinite recursion, rejected at
@@ -1282,14 +1291,16 @@ under the first agent's `input_as` before handing it over. The payload is
 therefore rebuilt at every hop, never extended.
 
 The **flow contract** (what the submit promises to the client) is anchored to
-the two ends of the main, level-1 route: its **input** is the `input_as` of the
-starting agent (the first agent of level 1), and its **output** is the
-`output_as` of the **last** agent of level 1. Every intermediate `output_as` is
-an internal bridge to the next agent only; it is neither part of the client's
-request nor of the final result. The submit re-keys the client payload under
-the starting agent's `input_as`, and the flow ends when the last agent of
-level 1 delivers its result (under that agent's `output_as`) to the final-result
-queue.
+the **starting agent** (the chosen `main` agent the submit seeds the flow on):
+its **input** is the `input_as` of the starting agent, and its **output** is
+the `output_as` of the starting agent. Every other agent's `output_as` is an
+internal bridge to a next step only; it is neither part of the client's request
+nor of the final result. The submit re-keys the client payload under the
+starting agent's `input_as`, and the flow ends when the starting agent (or the
+last step of the level that it closes) delivers the result to the final-result
+queue, built under the starting agent's `output_as`. For a composite starting
+agent, its `output_as` is assembled by the composite from its branches (§12.4);
+for an atomic starting agent, it is the agent's own `output_as`.
 
 ### 12.2 One inbox queue per class; every agent of the class polls it
 
