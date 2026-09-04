@@ -332,8 +332,9 @@ orchestrated by the `Runtime`. Its operations fall into two groups:
   calling.
 - `cache_spec` is an **upsert**.
 
-**Kind binding:** a fixed map `{"linguistic", "tool", "sequence", "parallel"}`
-→ concrete agent class. An unrecognized kind → clear error before anything is
+**Kind binding:** a fixed map `{"linguistic", "tool"}` → concrete atomic agent
+class, plus `type: composite` → the composite agent class. An unrecognized
+kind or a composite carrying a `kind` → clear error before anything is
 recorded.
 
 #### CLI (public face = the Runtime)
@@ -398,15 +399,18 @@ Also a thin wrapper — no extra logic.
 
 ### 4.10 The pattern schema (S1) — one agent spec, mandatory contracts, terse call
 
-> This section states the S1 pattern schema: `sequence`/`parallel`, terse tool
-> `parameters`, mandatory symmetric contracts, no magic composition. §4.11
+> This section states the S1 pattern schema: the unified agent model
+> (`type: atomic | composite`, `kind: tool | linguistic`, `branches` for the
+> composite), terse tool `parameters` with explicit `{input_as}.{key}`
+> resolution, mandatory symmetric contracts, no magic composition. §4.11
 > Schema 1 is the compact normative reference; this section expands it.
 
 A pattern is **YAML data** (rule 7) defining **agents** — the only first-class
 notion of this design. There is **one** agent specification shared by every
-agent (tool, linguistic, sequence, parallel); the kinds differ only in their
-**interior** — what executes — never in their contract or in how they are wired
-into a flow. The pattern **declares**; the code resource defines the tool's
+agent; `type` discriminates `atomic` from `composite`, and for an atomic
+`kind` names its interior — what executes (`tool` | `linguistic`). The kinds
+differ only in their **interior**, never in their contract or in how they are
+wired into a flow. The pattern **declares**; the code resource defines the tool's
 signature; Schema 3 (`available_tools`) maps name → implementation + policy.
 The shape language inside the schemas supports
 string/number/integer/boolean/array/object, `required`, `properties` and
@@ -420,13 +424,13 @@ pattern (rule 7).
 
 ```yaml
 type: atomic | composite                      # root discriminator; exactly these two
-kind: tool | linguistic | sequence | parallel # second, explicit, cross-validated
-name: <id>
+kind: tool | linguistic                       # interior of ATOMIC only (composites are type: composite)
+name: <id>                                    # MANDATORY, every agent
 description: <text>                           # optional
 main: bool                                    # optional; root capability, NOT position
 
 # Entry contract — MANDATORY for every agent
-input_as: <alias>                             # names the incoming payload space; no magic word
+input_as: <alias>                             # names the incoming payload space; anti-convention
 input_type: text | json | binary
 input_schema:                                 # mandatory (all agents; text has no schema)
   type: object
@@ -439,28 +443,36 @@ output_as: <alias>                            # names the deposited payload spac
 output_type: text | json | binary
 output_schema:                                # mandatory (all agents; text has no schema)
 
-# Interior — exactly one, by kind
+# Interior — ATOMIC only, by kind
 tool: <available_tools-key>                   # kind: tool; the CALL + the code's signature
 parameters:                                   # kind: tool; terse call (§4.10.4)
-  <arg>: <dotted.path | literal>              #   no {from:}, {value:}, {default:}
+  <arg>: <{input_as}.{key} | literal>         #   explicit {input_as}.{key}: no implicit resolution
 prompt: "<template with {var}>"               # kind: linguistic
-sequence: [ ... ]                             # kind: sequence (refs pattern:<name> or inline w/ name)
-parallel: [ ... ]                             # kind: parallel (children bind only from input_as)
+
+# Interior — COMPOSITE only (type: composite)
+branches:                                     # list of branches; each branch is an ordered list of steps
+  - - pattern: <name>                         #   step: reference ONLY (no inline, no nested branches)
+      input_as: <alias>                       #   equals that pattern's declared input_as (validated)
+    - pattern: <name>                         #   no output_as here: it is always the referenced agent's
+      input_as: <alias>
+  - - pattern: <name>
+      input_as: <alias>
 ```
 
 **Branch-exclusive fields, structurally enforced.** `type: atomic` → `kind:
-tool` or `kind: linguistic`; `type: composite` → `kind: sequence` or `kind:
-parallel`. A tool branch cannot carry `prompt`; a linguistic branch cannot
+tool` or `kind: linguistic`; `type: composite` → must carry `branches` and no
+`kind`. A tool branch cannot carry `prompt`; a linguistic branch cannot
 carry `tool`; atomic kinds are exclusive (a step is either a tool or a prompt —
-never both). Crossed `type × kind`, a missing `kind`, both work keys on one
-atomic, `parallel`+`sequence` together, a schema on a `text` type, a tool
+never both). A composite carries neither `tool` nor `prompt` — only `branches`.
+Crossed `type × kind`, a missing `kind` on an atomic, missing `name`, both work
+keys on one atomic, `parameters`/`prompt` on a composite, a composite without
+`branches`, an atomic with `branches`, a schema on a `text` type, a tool
 without `tool`, or a linguistic without `prompt` are rejected at parse.
 Discriminated union — nothing is inferred by key presence.
 
 #### 4.10.2 Mandatory symmetric contracts
 
-Every agent — atomic or composite, tool, linguistic, sequence or parallel —
-declares an **entry contract** (what it consumes: `input_as`, `input_type`,
+Every agent — atomic or composite — declares an **entry contract** (what it consumes: `input_as`, `input_type`,
 `input_schema`) and an **output contract** (what it produces: `output_as`,
 `output_type`, `output_schema`). The full triples are **mandatory for every
 agent**, with strict symmetry and no exceptions. `input_type`/
@@ -468,7 +480,7 @@ agent**, with strict symmetry and no exceptions. `input_type`/
 payload *is* the string; json → values are fields of the declared schema;
 binary → the payload is the blob (or its reference). A `text` payload has no
 schema. Schemas validate at the boundary (rule 9), and the contracts make
-**composability checkable**: a use's `parameters`/`sequence` must satisfy the
+**composability checkable**: a use's `parameters`/`branches` steps must satisfy the
 used agent's entry contract, and every agent's output becomes a producer for
 its scope's chain.
 
@@ -488,23 +500,24 @@ error** (rule 9), never a silent convention.
 
 #### 4.10.3 The terse call vocabulary
 
-A tool's `parameters` value is **exactly one** of: a **plain dotted path** (a
-producer reference, resolved against the chain, §4.10.4), or a **literal** (a
-value fixed in this pattern/call). There is no `{from:}`, `{value:}` or
-`{default:}` wrapper — those verbosity forms are not approved; the default lives
-in the code's signature and is **never written**. A dotted path resolves against
-**the whole chain that precedes the node in its scope** — the encapsulating
-composite's `input_as` or the `output_as` of **any** earlier child of that
-scope, not only the immediate predecessor. `.path` must exist in the producer's
-declared `output_schema`, and the producer's output type must be statically
-assignable to the consuming variable. Literal values need no producer. Failures
-are load errors.
+A tool's `parameters` value is **exactly one** of: an **explicit dotted path**
+of the mandatory form `{input_as}.{key}` — the agent's own declared `input_as`
+followed by a key of its `input_schema` — or a **literal** (a value fixed in
+this pattern/call). There is no `{from:}`, `{value:}` or `{default:}` wrapper —
+those verbosity forms are not approved; the default lives in the code's
+signature and is **never written**. The resolution is **explicit and verbose**:
+the `input_as` is written out in every dotted path, never resolved implicitly
+against the input content. The written `input_as` must match this agent's
+declared `input_as`, and `key` must exist in its `input_schema`; a mismatch is
+a **load error** (rule 9). Literal values need no producer. Failures are load
+errors.
 
 #### 4.10.4 Interior and its coherence with the contract
 
 - **Tool.** `tool: <name>` selects a Schema-3 `available_tools` resource;
   `parameters:` is the **terse call** — each parameter of the executed code's
-  signature is a dotted path (resolve against the chain, §4.10.3) or a literal;
+  signature is an explicit `{input_as}.{key}` dotted path (the agent's own
+  `input_as` + a key of its `input_schema`, §4.10.3) or a literal;
   never `{from:}`/`{value:}`/`{default:}`; omitted means the code's default.
   The tool's `input_schema` must be a valid subset of the registered signature —
   checked at load against the registry, so the declared contract can never be
@@ -516,27 +529,31 @@ are load errors.
   declaration, not a code signature — it must be **enforced at runtime**
   (structured output / validation against `output_schema`), or the contract is
   a promise that nothing checks (rule 9).
-- **Composites.** `sequence:`/`parallel:` are references (`pattern: <name>`) or
-  full inline nodes (must carry `name`). A sequence lists the ordered classes of
-  its level; a parallel lists its branches. There is no `emit:` and no
-  "last child renamed": **how a composite combines its children's results into
-  its own output is the agent's implementation**, and
-  the declared `output_as`/`output_schema` is the contract that implementation
-  must satisfy.
+- **Composites.** A composite is `type: composite` with `branches` — a list of
+  branches, each an ordered list of **steps**. A step is exactly
+  `{pattern: <name>, input_as: <alias>}`: a reference to a defined pattern (no
+  inline definition), with `input_as` validated to equal the referenced
+  pattern's declared `input_as`; there is no `output_as` on a step — it is
+  always the referenced agent's own (internal, never travels), and the handoff
+  re-keys the producer's value under the next step's `input_as`. There are **no
+  nested `branches`** and **no inline nodes**: to express inner branching, a
+  step's `pattern` references a `type: composite` agent. There is no `emit:`
+  and no "last child renamed": **how a composite combines its children's
+  results into its own output is the agent's implementation**, and the declared
+  `output_as`/`output_schema` is the contract that implementation must satisfy.
 
 #### 4.10.5 Reuse belongs to every definition, and encapsulation
 
 Any agent — atomic or composite — is defined once, **source-agnostic**, and is
-**wired at the usage site**: a composite references it with `pattern: <name>`
-and its `parameters`/`sequence`/`parallel` resolve each required input to a
-source of its own chain (§4.10.3). The same definition used in different
-composites can bind the same variables to different producers; the interior
-never changes. The **same agent may appear more than once in a flow by
-position** — distinguished by `current_index` — unless inside its own
-definition (cycle → infinite recursion, rejected at catalog load). Reuse is
-constrained by **contract composability** (§4.10.2): repeated identical steps
-only chain if each one's entry contract is satisfiable by the previous output,
-so the apparent ``output_as`` collision dissolves. The used
+**wired at the usage site**: a composite references it as a step with
+`pattern: <name>` + `input_as`, and the handoff re-keys the produced value to
+each step's `input_as`. The same definition used in different composites binds
+to different inputs; the interior never changes. The **same agent may appear
+more than once in a flow by position** — distinguished by `current_index` —
+unless inside its own definition (cycle → infinite recursion, rejected at
+catalog load). Reuse is constrained by **contract composability** (§4.10.2):
+repeated identical steps only chain if each one's entry contract is satisfiable
+by the previous output, so the apparent ``output_as`` collision dissolves. The used
 agent's contract is kept: keys are a subset of its declared properties,
 `required` covered unless a `default` exists, extras are load errors; the used
 agent's `output_as` becomes a producer for later siblings.
@@ -552,15 +569,17 @@ containing itself) are detected at catalog load and rejected.
 A composite declares its output contract (`output_as`/`output_type`/
 `output_schema`) up front. **How** it produces that output from its children's
 results is **the agent's implementation** — there is
-no `emit:` map and no "last child renamed" rule. A sequence runs its ordered
-classes and its implementation assembles the declared output; a parallel fans
-out to its branches, gathers their results on its gathering queue, and its
+no `emit:` map and no "last child renamed" rule. A composite fans out to its
+`branches`, gathers their results on its gathering queue, and its
 implementation assembles the declared output from them. The contract is the
 guarantee the implementation must satisfy; nothing more is specified.
 
-A parallel's children bind **only** from the composite's `input_as`; any serial
-dependency between branches is expressed as a `sequence` nested inside a branch
-(no hidden ordering, no races).
+A composite's steps bind from the composite's `input_as` (each step's
+`input_as` re-keys from the composite's input or a prior sibling's produced
+value); any serial dependency between steps is expressed by order within a
+branch, and any parallel split is another branch — there are no nested
+`branches`; an inner split is a step whose `pattern` is itself a `type:
+composite` agent (no hidden ordering, no races).
 
 #### 4.10.7 `main` = root capability, not position
 
@@ -576,10 +595,10 @@ identity/capability, not position.
 #### 4.10.8 Checkable composability (redundancy against the silent)
 
 Because every agent declares its entry and output contracts, the loader
-verifies the catalog statically: every `parameters`/`sequence`/`parallel`
-reference resolves against a declared producer in the chain; every use satisfies
-the used agent's entry contract with statically compatible types; `output_as`
-names are unique per scope; interiors cohere with their contracts (vocabulary
+verifies the catalog statically: every `branches` step resolves against a
+declared pattern whose `input_as` matches; every use satisfies the used agent's
+entry contract with statically compatible types; `output_as` names are unique
+per scope; interiors cohere with their contracts (vocabulary
 above); and there are no cycles. A catalog with an invalid spec **fails at
 load** (rule 9; LEG-071 dry-run) — nothing silently miswired ever runs.
 
@@ -593,13 +612,20 @@ load** (rule 9; LEG-071 dry-run) — nothing silently miswired ever runs.
 
 ### Schema 1 — the agent pattern (S1)
 
-One spec for every agent, symmetric mandatory contracts. Approved vocabulary
-(`emit`/`bind`/`children` are NOT approved):
+One spec for every agent, symmetric mandatory contracts. Unified model:
+`type` discriminates `atomic` from `composite`; `kind` names only the interior
+of an atomic (`tool` | `linguistic`); a composite is identified by
+`type: composite` + `branches` (no `sequence`/`parallel` kinds). No inline
+definitions and no nested `branches` — every agent is defined once as a
+`pattern` and referenced by `pattern: <name>`; inner branching is expressed by
+referencing a `type: composite` pattern. Approved vocabulary (`emit`/`bind`/
+`children` are NOT approved):
 
 ```yaml
-type: atomic | composite        # root discriminator, exactly these two
-kind: tool | linguistic | sequence | parallel
-name: <id>
+type: atomic | composite        # root discriminator; exactly these two
+kind: tool | linguistic         # interior of ATOMIC only (composites are type: composite)
+name: <id>                      # MANDATORY, every agent
+description: <text>             # optional
 main: bool                      # root capability (identity), NOT position
 # entry contract — MANDATORY for every agent
 input_as: <alias>               # names the incoming payload space (anti-convention)
@@ -609,28 +635,56 @@ input_schema:                   # mandatory (json: object with required/properti
 output_as: <alias>              # names the deposited payload space (destination)
 output_type: text | json | binary
 output_schema:                  # mandatory (json: object with required/properties)
-# interior — by kind
+# interior — ATOMIC only, by kind
 tool: <available_tools-key>     # kind: tool; the CALL and the code's signature
-parameters:                     # kind: tool; arg -> dotted.path | literal (no from/value/default)
+parameters:                     # kind: tool; arg -> {input_as}.{key} | literal (no from/value/default)
 prompt: "<template with {var}>" # kind: linguistic
-sequence: [ ... ]               # kind: sequence (refs pattern:<name> or inline with name)
-parallel: [ ... ]               # kind: parallel (children bind only from input_as of the composite)
+# interior — COMPOSITE only (type: composite)
+branches:                       # list of branches; each branch is an ordered list of steps
+  - - pattern: <name>           #   step: reference ONLY (no inline), to a defined pattern
+      input_as: <alias>         #   equals that pattern's declared input_as (validated)
+    - pattern: <name>           #   no output_as: it is always the referenced agent's (re-keying)
+      input_as: <alias>
+  - - pattern: <name>
+      input_as: <alias>
 ```
 
 - Contract of entry and output are **mandatory for every agent** — atomic and
-  composite, tool/linguistic/sequence/parallel — the full triples
-  (`as`/`type`/`schema`), strict symmetry, no exceptions.
-- Cross `type × kind`, missing `kind`, both work-keys on one atomic,
-  `parallel`+`sequence` together, schema on a `text` type, tool without `tool`,
-  linguistic without `prompt`, prompt+tool — rejected at parse.
-- **Reuse:** a definition is unique; each use in a composite is a distinct node.
-  Same-class agents may appear more than once in a flow (by position), unless in
-  their own definition (cycle → infinite recursion, rejected at catalog load,
-  §4.10.5).
-- **ToolAgent `parameters` is the CALL, terse:** `parameters: {arg: dotted.path
-  | literal}` — no `{from:}`, `{value:}`, `{default:}`; the default lives in the
-  code's signature and is never written. The tool names its resource via
-  `tool: <name>`; the name must exist in Schema 3's `available_tools`.
+  composite — the full triples (`as`/`type`/`schema`), strict symmetry, no
+  exceptions.
+- `type: atomic` → `kind: tool` or `kind: linguistic`; `type: composite` → must
+  carry `branches` and no `kind`. A tool branch cannot carry `prompt`; a
+  linguistic branch cannot carry `tool`; atomic kinds are exclusive; a
+  composite carries neither `tool` nor `prompt` — only `branches`. Crossed
+  `type × kind`, missing `kind` on an atomic, missing `name`, both work-keys on
+  one atomic, `parameters`/`prompt` on a composite, a schema on a `text` type,
+  tool without `tool`, linguistic without `prompt` — rejected at parse. A
+  composite without `branches` is rejected; an atomic with `branches` is
+  rejected.
+- **`parameters` resolution is explicit and verbose.** Each dotted path in a
+  tool's `parameters` is **mandatorily** of the form `{input_as}.{key}` — the
+  agent's own declared `input_as` followed by a key of its `input_schema`
+  (e.g. `text: "{article.text}"`). It is never resolved implicitly against the
+  input content; the alias is written out. The `input_as` written must match
+  this agent's declared `input_as`, and `key` must exist in its `input_schema`.
+  A literal needs no producer.
+- **Steps reference, they never define.** A step in `branches` is exactly
+  `{pattern: <name>, input_as: <alias>}`: a reference to a defined pattern,
+  with `input_as` validated to equal the referenced pattern's declared
+  `input_as`. There is no inline definition and no nested `branches`. To get
+  inner branching in a step, that step's `pattern` is a `type: composite` agent
+  (reuse by reference, recurse). No `output_as` is declared on a step — it is
+  always the referenced agent's own `output_as` (internal, never travels); the
+  handoff re-keys the producer's value under the next step's `input_as`.
+- **Reuse:** a definition is unique; each use in a composite is a distinct
+  node. Same-class agents may appear more than once in a flow (by position),
+  unless in their own definition (cycle → infinite recursion, rejected at
+  catalog load, §4.10.5).
+- **ToolAgent `parameters` is the CALL, terse:** `parameters: {arg:
+  {input_as}.{key} | literal}` — no `{from:}`, `{value:}`, `{default:}`; the
+  default lives in the code's signature and is never written. The tool names
+  its resource via `tool: <name>`; the name must exist in Schema 3's
+  `available_tools`.
 
 ### Schema 2 — the token/message that travels between class queues
 
