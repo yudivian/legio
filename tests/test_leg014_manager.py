@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from beaver import AsyncBeaverDB
 
-from legio.flow import ExecutionResultMessage, FlowToken
+from legio.flow import ExecutionRequestMessage, ExecutionResultMessage, FlowToken
 from legio.manager import TaskState, status, submit
 from legio.naming import queue_key, result_queue_key
 
@@ -78,6 +78,13 @@ async def test_submitted_task_holds_root_token_with_result_queue_target(
     assert token.task_id == task_id
     assert token.level == 1
     assert token.end_of_level_queue == result_queue_key(task_id)
+    # ARCHITECTURE §3: the submit assigns the root branch_id — every message of
+    # the flow carries a non-empty branch_id, never empty.
+    assert token.branch_id
+    # and the deposit to the starting agent's queue carries the same root id.
+    item = await beaver_db.queue(queue_key("flow_alpha")).get(block=False)
+    root_request = ExecutionRequestMessage.model_validate(item.data)
+    assert root_request.branch_id == token.branch_id
 
 
 @pytest.mark.asyncio
