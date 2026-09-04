@@ -38,7 +38,7 @@ def build_flip_agent(db: AsyncBeaverDB) -> ToolAgent:
         db=db,
         available_tools=registry,
         tool_name="flip",
-        parameters={"text": "{text}"},
+        parameters={"text": "{flip.text}"},
         input_as="flip",
         output_as="flip",
     )

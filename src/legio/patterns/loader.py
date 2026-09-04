@@ -19,47 +19,35 @@ from legio.patterns.schema1 import AgentSpec, Catalog
 logger = logging.getLogger(__name__)
 
 
-def _resolve_dotted_path(path: str, scope: dict[str, Any]) -> Any:
-    """Resolve a dotted path against a scope dict."""
-    current: Any = scope
-    for part in path.split("."):
-        if isinstance(current, dict):
-            current = current.get(part)
-        else:
-            raise KeyError(f"path {path!r} unresolved at {part!r}")
-        if current is None:
-            raise KeyError(f"path {path!r} resolved to None")
-    return current
+def _validate_tool_parameters(spec: AgentSpec) -> None:
+    """Validate a tool's terse `parameters` (AGENT_LIFECYCLE §4.12).
 
-
-def _validate_parameters_chain(
-    parameters: dict[str, Any], chain_scope: dict[str, Any]
-) -> None:
-    """Validate that every parameter path resolves in the chain scope."""
-    for arg, value in parameters.items():
-        if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
-            path = value[1:-1]
-            try:
-                _resolve_dotted_path(path, chain_scope)
-            except KeyError as exc:
-                raise UnrecoverableError(
-                    f"parameter {arg!r} path {path!r} does not resolve in chain: {exc}"
-                ) from exc
-
-
-def _build_chain_scope(spec: AgentSpec, parent_scope: dict[str, Any] | None) -> dict[str, Any]:
-    """Build the scope for a spec and its children."""
-    scope = {}
-    if parent_scope:
-        scope.update(parent_scope)
-    # Add this spec's input_as properties at top level (for child parameter resolution)
-    if spec.input.input_schema:
-        props = spec.input.input_schema.get("properties", {})
-        scope.update(props)
-    # Add this spec's output_as -> its output_schema properties (for later siblings)
-    if spec.output.output_schema:
-        scope[spec.output.output_as] = spec.output.output_schema.get("properties", {})
-    return scope
+    Each dotted path must be **explicit** `{input_as}.{key}` — the agent's own
+    declared `input_as` followed by a key of its `input_schema`. No implicit
+    resolution, no other prefix. A literal needs no producer.
+    """
+    input_as = spec.input.input_as
+    schema_keys = (
+        set(spec.input.input_schema.get("properties", {}).keys())
+        if spec.input.input_schema
+        else set()
+    )
+    for arg, value in (spec.parameters or {}).items():
+        if not (isinstance(value, str) and value.startswith("{") and value.endswith("}")):
+            continue  # literal
+        path = value[1:-1]
+        parts = path.split(".")
+        if len(parts) != 2 or parts[0] != input_as:
+            raise UnrecoverableError(
+                f"tool agent {spec.name!r}: parameter {arg!r} path {path!r} must be "
+                f"explicit '{{input_as}}.{{key}}' with input_as={input_as!r}"
+            )
+        key = parts[1]
+        if key not in schema_keys:
+            raise UnrecoverableError(
+                f"tool agent {spec.name!r}: parameter {arg!r} key {key!r} is not in "
+                f"its input_schema"
+            )
 
 
 def _validate_agent_spec(
@@ -76,16 +64,8 @@ def _validate_agent_spec(
 
     # Interior ↔ contract coherence
     if spec.kind is not None and spec.kind.value == "tool":
-        # A tool resolves its terse parameters against the input under its
-        # `input_as` (resolve_parameters in AGENT_LIFECYCLE §…). Top-level tools
-        # validate against their own input_schema; sibling references are
-        # validated per-branch by the composite below.
-        tool_scope: dict[str, Any] = (
-            spec.input.input_schema.get("properties", {})
-            if spec.input.input_schema
-            else {}
-        )
-        _validate_parameters_chain(spec.parameters or {}, tool_scope)
+        # terse parameters must be explicit `{input_as}.{key}` (§4.12)
+        _validate_tool_parameters(spec)
         # TODO: tool signature coherence checked at load where possible (LEG-022)
 
     elif spec.kind is not None and spec.kind.value == "linguistic" and spec.prompt:
@@ -109,39 +89,17 @@ def _validate_agent_spec(
             )
 
     # Composite: validate branches (bare pattern names resolved against catalog).
-    # Each branch is a sequence of sibling references; tool steps may consume the
-    # outputs of earlier siblings plus the composite's own input, so their
-    # parameters are validated against the cumulative branch scope.
     if spec.type.value == "composite" and spec.branches:
         for branch_idx, branch in enumerate(spec.branches):
-            branch_scope: dict[str, Any] = {}
-            if spec.input.input_schema:
-                branch_scope.update(
-                    spec.input.input_schema.get("properties", {})
-                )
             for step_name in branch:
                 if step_name not in catalog:
                     raise UnrecoverableError(
                         f"composite {spec.name!r} branch {branch_idx} "
                         f"references unknown pattern: {step_name!r}"
                     )
-                step_spec = catalog[step_name]
-                if step_spec.kind is not None and step_spec.kind.value == "tool":
-                    # The tool resolves its parameters against the input under
-                    # its `input_as` (a sibling output) merged with the enclosing
-                    # composite's own input scope — the union a step may reference
-                    # (matching how the runtime re-keys the payload).
-                    sibling_input = branch_scope.get(step_spec.input.input_as, {})
-                    validation_scope = dict(branch_scope)
-                    if isinstance(sibling_input, dict):
-                        validation_scope.update(sibling_input)
-                    _validate_parameters_chain(
-                        step_spec.parameters or {}, validation_scope
-                    )
-                if step_spec.output.output_schema:
-                    branch_scope[step_spec.output.output_as] = (
-                        step_spec.output.output_schema.get("properties", {})
-                    )
+                # Tool step parameters are validated autonomously per spec
+                # (explicit `{input_as}.{key}` on the step's own contracts) —
+                # no cross-sibling scope is needed for load validation.
 
     if spec.output.output_schema:
         return {spec.output.output_as: spec.output.output_schema.get("properties", {})}

@@ -44,7 +44,7 @@ output:
       entities: {type: array, items: {type: string}}
 tool: extractor
 parameters:
-  text: "{text}"
+  text: "{text.text}"
 """
 
 LINGUISTIC_SPEC_YAML = """
@@ -195,7 +195,7 @@ def test_tool_agent_spec_schema1_loads() -> None:
             output_schema={"type": "object", "properties": {"entities": {"type": "array"}}},
         ),
         tool="extractor",
-        parameters={"text": "{text}"},
+        parameters={"text": "{text.text}"},
     )
     assert spec.name == "extract"
     assert spec.type is AgentType.ATOMIC
@@ -203,7 +203,7 @@ def test_tool_agent_spec_schema1_loads() -> None:
     assert spec.input.input_as == "text"
     assert spec.output.output_as == "extracted"
     assert spec.tool == "extractor"
-    assert spec.parameters == {"text": "{text}"}
+    assert spec.parameters == {"text": "{text.text}"}
 
 
 def test_linguistic_agent_spec_schema1_loads() -> None:
@@ -341,6 +341,66 @@ def test_reuse_by_position() -> None:
     """The same agent definition can appear in multiple composites by position."""
     # This is tested by loading two different composites that reuse the same
     # agent definition (not shown here; would need a catalog with shared specs)
+
+
+def test_tool_parameters_reject_implicit_path() -> None:
+    """A tool parameter path must be explicit `{input_as}.{key}` (§4.12)."""
+    from legio.errors import UnrecoverableError
+
+    implicit_yaml = """
+name: extract
+type: atomic
+kind: tool
+input:
+  input_as: text
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+output:
+  output_as: extracted
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      extracted: {type: string}
+tool: extractor
+parameters:
+  text: "{text}"
+"""
+    with pytest.raises(UnrecoverableError, match="must be explicit"):
+        load_patterns(implicit_yaml)
+
+
+def test_tool_parameters_reject_key_not_in_schema() -> None:
+    """A tool parameter key must exist in its input_schema (§4.12)."""
+    from legio.errors import UnrecoverableError
+
+    unknown_key_yaml = """
+name: extract
+type: atomic
+kind: tool
+input:
+  input_as: text
+  input_type: json
+  input_schema:
+    type: object
+    properties:
+      text: {type: string}
+output:
+  output_as: extracted
+  output_type: json
+  output_schema:
+    type: object
+    properties:
+      extracted: {type: string}
+tool: extractor
+parameters:
+  text: "{text.body}"
+"""
+    with pytest.raises(UnrecoverableError, match="not in its input_schema"):
+        load_patterns(unknown_key_yaml)
 
 
 def test_starting_route_composite_single_branch() -> None:

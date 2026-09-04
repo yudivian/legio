@@ -39,7 +39,7 @@ def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
         db=db,
         available_tools=registry,
         tool_name="transform",
-        parameters={"text": "{text}", "factor": "{factor}"},
+        parameters={"text": "{transform.text}", "factor": "{transform.factor}"},
         input_as="transform",
         output_as="transform",
     )

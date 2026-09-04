@@ -73,8 +73,8 @@ output:
       result: {type: string}
 tool: assess
 parameters:
-  title: "{title}"
-  summary: "{summary}"
+  title: "{summ.title}"
+  summary: "{summ.summary}"
 ---
 name: summarize
 type: composite
@@ -148,7 +148,7 @@ def build_standing_agents(
         db=db,
         available_tools=registry,
         tool_name="assess",
-        parameters={"title": "{title}", "summary": "{summary}"},
+        parameters={"title": "{summ.title}", "summary": "{summ.summary}"},
         input_as="summ",
         output_as="result",
     )

@@ -64,7 +64,7 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
         db=beaver_db,
         available_tools=registry,
         tool_name="transform",
-        parameters={"text": "{text}", "factor": "{factor}"},
+        parameters={"text": "{summ.text}", "factor": "{summ.factor}"},
         input_as="summ",
         output_as="summ",
     )
@@ -100,7 +100,7 @@ async def test_input_signature_rejection_is_never_silent(
         db=beaver_db,
         available_tools=registry,
         tool_name="transform",
-        parameters={"text": "{text}", "factor": "{factor}"},
+        parameters={"text": "{summ.text}", "factor": "{summ.factor}"},
         input_as="summ",
         output_as="summ",
     )
@@ -138,7 +138,7 @@ async def test_no_due_item_returns_false(beaver_db: AsyncBeaverDB) -> None:
         db=beaver_db,
         available_tools=registry,
         tool_name="transform",
-        parameters={"text": "{text}", "factor": "{factor}"},
+        parameters={"text": "{summ.text}", "factor": "{summ.factor}"},
         input_as="summ",
         output_as="summ",
     )

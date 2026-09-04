@@ -166,7 +166,7 @@ def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
         db=db,
         available_tools=registry,
         tool_name="transform",
-        parameters={"text": "{text}"},
+        parameters={"text": "{transform.text}"},
         input_as="transform",
         output_as="transform",
     )
@@ -184,7 +184,7 @@ def build_upper_agent(db: AsyncBeaverDB) -> ToolAgent:
         db=db,
         available_tools=registry,
         tool_name="upper",
-        parameters={"text": "{text}"},
+        parameters={"text": "{upper.text}"},
         input_as="upper",
         output_as="upper",
     )

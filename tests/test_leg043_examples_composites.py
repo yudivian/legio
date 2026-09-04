@@ -76,8 +76,8 @@ output:
       result: {type: string}
 tool: assess
 parameters:
-  title: "{title}"
-  summary: "{summary}"
+  title: "{extract.title}"
+  summary: "{extract.summary}"
 """
 
 EXTRACT_AND_SUMMARIZE_YAML = FULL_EXTRACT_YAML + """
@@ -224,7 +224,7 @@ def build_sequence_agents(
         db=db,
         available_tools=registry,
         tool_name="assess",
-        parameters={"title": "{title}", "summary": "{summary}"},
+        parameters={"title": "{extract.title}", "summary": "{extract.summary}"},
         input_as="extract",
         output_as="result",
     )

@@ -53,13 +53,9 @@ class ToolAgent(AgentBase):
     async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any]:
         error: str | None = None
         try:
-            # Resolve terse parameters against the input under this agent's input_as
-            input_data: Mapping[str, Any] = (
-                request.payload.get(self._input_as, {})
-                if self._input_as and self._input_as in request.payload
-                else request.payload
-            )
-            resolved_kwargs = resolve_parameters(self._parameters, input_data)
+            # Resolve terse parameters against the incoming payload (explicit
+            # `{input_as}.{key}` dotted paths, §4.12 — no implicit resolution).
+            resolved_kwargs = resolve_parameters(self._parameters, request.payload)
             # Load the tool from available_tools (dotted path)
             tool = self._available_tools.load_tool(self._tool_name)
             # Validate against tool's signature at execution time
