@@ -201,20 +201,19 @@ are red for the yet-unimplemented surface.
   - **Accept**: examples behave identically under the unified model; nested
     composite branches (multi-step, composite-in-branch) run correctly; docs
     re-written first; suite green.
-- **LEG-040** SequenceAgent (advance index, chain, continuation).
-  - **Accept**: a 3-stage sequence runs to completion on one node; index
-    advances exactly once per stage; final stage delivers to parent/client.
-- **LEG-041** ParallelAgent: inbox + gathering queue, fan-out/fan-in.
-  - **Accept**: single-node parallel with 3 children completes with all results;
-    a missing child result is surfaced visibly (never silent).
-- **LEG-042** Fan-in by source (dedupe per (parallel, task)) + `output_as`
-  namespacing (H3 payload building).
+- **LEG-040** ~~SequenceAgent~~ → **superseded by LEG-044** (unified composite
+  runner). Contract rewritten to the unified model.
+- **LEG-041** ~~ParallelAgent~~ → **superseded by LEG-044** (unified composite
+  runner). Contract deleted; content absorbed into LEG-040.
+- **LEG-042** Fan-in by branch slot (dedupe per `(composite, task, branch_id)`).
   - **Accept**: two occurrences of the same child pattern in one DAG are
-    distinct tasks (dedupe per (parallel, task), not by agent name); the payload
-    is built flat; collisions resolved by `output_as`.
-- **LEG-043** Examples `extract_and_summarize` (sequence) and `distribute_summary`
-  (parallel), domain-free.
-  - **Accept**: both are green tests exercising real composite flows.
+    distinct tasks (dedupe per `(composite, task, branch_id)`, not by agent
+    name); the composite builds its payload from branch results; collisions
+    resolved by `output_as`.
+- **LEG-043** Examples `extract_and_summarize` (single-branch composite) and
+  `distribute_summary` (multi-branch composite), domain-free.
+  - **Accept**: both are green tests exercising real composite flows; both use
+    the same unified composite runner.
 
 ### R-5 — Token
 
