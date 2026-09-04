@@ -49,29 +49,34 @@ are red for the yet-unimplemented surface.
 - **LEG-010** Patterns YAML schema (Schema 1): **one agent spec**
   (`docs/AGENT_LIFECYCLE.md` §4.10/§4.11 Schema 1), domain-free.
   A pattern is YAML data; it declares **agents** only. `type` (atomic|composite)
-  × `kind` (tool|linguistic|sequence|parallel) with branch-exclusive fields,
-  structurally enforced; **mandatory symmetric entry/output contracts**
+  × `kind` (tool|linguistic, atomic-only; a composite carries `branches`, no
+  `kind`), structurally enforced; **mandatory symmetric entry/output contracts**
   (`input_as`/`input_type`/`input_schema`,
   `output_as`/`output_type`/`output_schema`; text/json/binary) on **every**
   agent; the **terse call vocabulary** `parameters: {arg: dotted.path |
   literal}` for `kind: tool` (no `{from:}`/`{value:}`/`{default:}`, no `bind:`,
-  no `emit:` — those are rejected); chain-wide dotted-path resolution against
-  the whole preceding chain in scope; interior↔contract coherence (tool
+  no `emit:` — those are rejected); explicit `{input_as}.{key}` paths (the
+  agent's own `input_as` + a key of its `input_schema`, AGENT_LIFECYCLE §4.12);
+  interior↔contract coherence (tool
   `parameters` ↔ registered signature, checked at load; linguistic prompt
   variables ↔ `input_schema`, all used/all declared; linguistic `output_schema`
   enforced at runtime); reuse of any definition by `pattern:` and by repetition
   by position, with encapsulation, `output_as` uniqueness and cycle rejection;
   composite output is the composite's **implementation** (no `emit:`, no "last
-  child renamed"); parallel children bind only from the composite's `input_as`;
+  child renamed"); composite children bind only from the composite's `input_as`;
   `main` as root capability, not position. Composition is **contract
-  compatibility**, not exact subset. Inherits H1–H4
-  (`docs/VALIDATIONS/single-node-model.md`) as read semantics: inline stages,
-  flat read + `output_as` read namespacing, building the payload across steps.
+  compatibility**, not exact subset. Read semantics (single-node validation,
+  `docs/VALIDATIONS/single-node-model.md`): steps read the value **re-keyed**
+  under their own `input_as`; `parameters` are explicit `{input_as}.{key}`,
+  never resolved implicitly; the payload is **built** across steps (construction
+  + re-keying, no accumulation).
   - **Accept**: a fixture translating two representative composite patterns
-    into S1 YAML loads and validates (a sequence reusing a tool node and a
-    linguistic node; a parallel with two branches); a tool `parameters` dotted
-    path resolves against any earlier producer in the chain (a 3-step chain
-    proves it) and fails on undeclared aliases/paths; a `{var}` in a linguistic
+    into S1 YAML loads and validates (a single-branch composite reusing a tool
+    node and a linguistic node; a multi-branch composite with two branches); a
+    tool `parameters`
+    path `{input_as}.{key}` resolves against the value re-keyed under the
+    agent's own `input_as` (a 3-step chain proves it) and fails on
+    undeclared aliases/paths; a `{var}` in a linguistic
     prompt not declared in `input_schema` is a load error; nodes missing either
     contract (`input_as`/`input_type`/`input_schema` or
     `output_as`/`output_type`/`output_schema`) are rejected; the same agent
@@ -128,8 +133,8 @@ are red for the yet-unimplemented surface.
     wrapper), exercising priority ordering and namespace isolation directly
     against a temp beaver file.
 - **LEG-021** Patterns loader (minimal): S1 YAML → typed agent models.
-  - **Accept**: minimal atomic (tool/linguistic) and sequence/parallel composites
-    in the S1 shape load; invalid YAML raises a structured loader error
+  - **Accept**: minimal atomic (tool/linguistic) and single-/multi-branch
+    composites in the S1 shape load; invalid YAML raises a structured loader error
     (fail-fast); the branch-exclusive and mandatory-contract validation matrix
     (per LEG-010/Schema 1) is enforced at load.
 - **LEG-022** ToolAgent + tool registry execution path (Schema 1/2/3).
@@ -173,9 +178,10 @@ are red for the yet-unimplemented surface.
 ### R-4 — Composites
 
 > **In progress (current variation):** unify composites — see LEG-044 below. This
-> supersedes LEG-040/041/042/043's separate `kind: sequence|parallel` model.
+> supersedes LEG-040/041/042/043's separate kind-based sequence/parallel model.
 
-- **LEG-044** Unify composites: replace `kind: sequence|parallel` with a single
+- **LEG-044** Unify composites: replace the kind-based sequence/parallel split
+  with a single
   `composite` carrying `branches`. A `composite` with 1 branch is a sequence, >1
   a parallel; each branch is a route/sequence of agents (atomic — a sequence of
   size 1 — or composite, any cardinality, recursive). One composite runner
@@ -201,10 +207,12 @@ are red for the yet-unimplemented surface.
   - **Accept**: examples behave identically under the unified model; nested
     composite branches (multi-step, composite-in-branch) run correctly; docs
     re-written first; suite green.
-- **LEG-040** ~~SequenceAgent~~ → **superseded by LEG-044** (unified composite
-  runner). Contract rewritten to the unified model.
-- **LEG-041** ~~ParallelAgent~~ → **superseded by LEG-044** (unified composite
-  runner). Contract deleted; content absorbed into LEG-040.
+- **LEG-040** → **superseded by LEG-044** (unified composite runner). Contract
+  rewritten to the unified model. The old dedicated sequence/parallel runner
+  split no longer exists (one composite runner).
+- **LEG-041** → **superseded by LEG-044** (unified composite runner). Contract
+  deleted; content absorbed into LEG-040. No dedicated parallel runner exists;
+  multi-branch composites cover it.
 - **LEG-042** Fan-in by branch slot (dedupe per `(composite, task, branch_id)`).
   - **Accept**: two occurrences of the same child pattern in one DAG are
     distinct tasks (dedupe per `(composite, task, branch_id)`, not by agent
@@ -222,12 +230,12 @@ are red for the yet-unimplemented surface.
   - **Accept**: root task result lands in the final-result queue exactly once and
     is readable via status; no re-delivery after ack.
 - **LEG-051** Uniform parent continuation in every composite frontier.
-  - **Accept**: sequence *and* parallel return to the exact parent that
-    deposited them; nested composite returns correctly (tested with a
-    composite-inside-composite).
+  - **Accept**: single-branch and multi-branch composites return to the exact
+    parent that deposited them; nested composite returns correctly (tested with
+    a composite-inside-composite).
 - **LEG-052** Fan-in identity by path (not agent name); `output_as`
   namespacing fixes.
-  - **Accept**: same-named parallel branches at different positions do not
+  - **Accept**: same-named branches at different positions do not
     join together; regression tests cover the earlier agent-name bug.
 - **LEG-053** Final-result delivery semantics (branch-close vs flow-end).
   - **Accept**: the flow-end at `level == 1` delivers the final result to the

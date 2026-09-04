@@ -90,7 +90,7 @@ def step_request(
 
 
 @pytest.mark.asyncio
-async def test_sequence_forwards_to_first_stage_of_flattened_route(
+async def test_composite_forwards_to_first_stage_of_flattened_route(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     """The composite re-seeds its first stage with current_index 0 and re-keys
@@ -122,10 +122,11 @@ async def test_sequence_forwards_to_first_stage_of_flattened_route(
 
 
 @pytest.mark.asyncio
-async def test_sequence_preserves_level_and_end_queue_for_branch(
+async def test_composite_preserves_level_and_end_queue_for_branch(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """A sequence inside a parallel branch keeps its level and branch closer: the
+    """A single-branch composite inside a multi-branch composite's branch keeps
+    its level and branch closer: the
     branch's stages return to the composite's own gathering queue, the composite
     joins them (single branch -> immediate) and resumes its own level carrying the
     outer-assigned closer (``gather:par``) and level."""
@@ -142,7 +143,7 @@ async def test_sequence_preserves_level_and_end_queue_for_branch(
         payload={"seq": {"v": 1}},
         route=(("par", "par"), ("seq", "seq")),
         current_index=1,
-        end_of_level_queue="gather:par",  # the parallel's gathering queue
+        end_of_level_queue="gather:par",  # the outer composite's gathering queue
         level=2,
     )
     await beaver_db.queue(queue_key("seq")).put(request.model_dump(mode="json"), priority=0.0)
@@ -175,7 +176,7 @@ async def test_sequence_preserves_level_and_end_queue_for_branch(
 
 
 @pytest.mark.asyncio
-async def test_sequence_runs_steps_in_order_and_builds_payload(
+async def test_composite_runs_steps_in_order_and_builds_payload(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     """A two-step sequence runs step 1 then step 2; step 2 consumes step 1's
@@ -234,7 +235,7 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
 
 
 @pytest.mark.asyncio
-async def test_sequence_with_empty_route_fails_visibly(beaver_db: AsyncBeaverDB) -> None:
+async def test_composite_with_empty_route_fails_visibly(beaver_db: AsyncBeaverDB) -> None:
     """An empty sequence is a construction error, never silent."""
     seq = build_composite(db=beaver_db, sequence_route=())
     request = step_request(

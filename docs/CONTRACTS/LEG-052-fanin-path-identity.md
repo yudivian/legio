@@ -4,15 +4,15 @@
 - **Rasante:** R-5
 - **GitHub issue:** #29
 - **Source:** `docs/PLAN.md` (LEG-052)
-- **Depends on:** LEG-041, ARCHITECTURE §6
+- **Depends on:** LEG-044, ARCHITECTURE §6
 
 ## Goal
 Correct fan-in identity: a step is identified by `task_id` + path position in
 the DAG, *not* by agent name. Fixes the earlier agent-name bug.
 
 ## Scope
-- **In scope:** step id semantics (`task_id`+path), naming of inline steps,
-  dedup/regression of the agent-name join bug.
+- **In scope:** step id semantics (`task_id`+path position), dedup/regression
+  of the agent-name join bug.
 - **Out of scope:** FINAL-identity semantics already covered by LEG-042.
 
 ## Contract & design
@@ -26,7 +26,7 @@ the DAG, *not* by agent name. Fixes the earlier agent-name bug.
 
 ## Acceptance criteria
 From `docs/PLAN.md` (LEG-052), verbatim:
-- Same-named parallel branches at different positions do not join together; regression
+- Same-named branches at different positions do not join together; regression
   tests cover the earlier agent-name bug.
 
 ## Tests

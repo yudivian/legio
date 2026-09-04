@@ -201,7 +201,7 @@ def build_tool_registry() -> AvailableToolsRegistry:
     return registry
 
 
-def build_sequence_agents(
+def build_single_branch_agents(
     db: AsyncBeaverDB,
 ) -> tuple[CompositeAgent, LinguisticAgent, ToolAgent]:
     """Boot the unified composite (single branch) + its standing atomic agents."""
@@ -241,7 +241,7 @@ def build_sequence_agents(
     return comp, extract, assess
 
 
-def build_parallel_agents(
+def build_multi_branch_agents(
     db: AsyncBeaverDB,
 ) -> tuple[CompositeAgent, LinguisticAgent, LinguisticAgent]:
     """Boot the unified composite (two branches) + its standing atomic agents."""
@@ -268,22 +268,22 @@ def build_parallel_agents(
     branches = resolve_composite_branches(
         catalog.specs["distribute_summary"], catalog
     )
-    par = CompositeAgent(
+    comp = CompositeAgent(
         agent_id="distribute_summary",
         db=db,
         branches=branches,
         input_as="payload",
         output_as="result",
     )
-    return par, summ, cata
+    return comp, summ, cata
 
 
 @pytest.mark.asyncio
-async def test_extract_and_summarize_sequence_over_rest(
+async def test_extract_and_summarize_single_branch_over_rest(
     caplog: pytest.LogCaptureFixture, beaver_db: AsyncBeaverDB
 ) -> None:
     caplog.set_level(logging.INFO)
-    comp, extract, assess = build_sequence_agents(beaver_db)
+    comp, extract, assess = build_single_branch_agents(beaver_db)
     pattern_catalog = load_patterns(EXTRACT_AND_SUMMARIZE_YAML)
 
     store = ClientTokenStore()
@@ -317,17 +317,17 @@ async def test_extract_and_summarize_sequence_over_rest(
         entry = status_resp.json()
         assert entry["state"] == "completed"
         assert entry["result_key"] == result_queue_key(task_id)
-        # sequence branch: assess produced {"result": "..."} under its output_as,
+        # single branch: assess produced {"result": "..."} under its output_as,
         # the composite gathered it under its own output_as "result"
         assert entry["output"]["result"]["result"]["result"] == "[Foxes] A note about foxes."
 
 
 @pytest.mark.asyncio
-async def test_distribute_summary_parallel_root_over_rest(
+async def test_distribute_summary_multi_branch_root_over_rest(
     caplog: pytest.LogCaptureFixture, beaver_db: AsyncBeaverDB
 ) -> None:
     caplog.set_level(logging.INFO)
-    par, summ, cata = build_parallel_agents(beaver_db)
+    comp, summ, cata = build_multi_branch_agents(beaver_db)
     pattern_catalog = load_patterns(DISTRIBUTE_SUMMARY_YAML)
 
     store = ClientTokenStore()
@@ -351,11 +351,11 @@ async def test_distribute_summary_parallel_root_over_rest(
         # The submit delivered to the composite's own class (dumb delivery point).
         # Run the composite fan-out, then the branch agents and the composite's
         # fan-in repeatedly, interleaving so the composite can collect returns.
-        await par.run()
+        await comp.run()
         for _ in range(3):
             await summ.run()
             await cata.run()
-            await par.run()
+            await comp.run()
 
         status_resp = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
         assert status_resp.status_code == 200, status_resp.text

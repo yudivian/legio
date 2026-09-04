@@ -230,7 +230,7 @@ def test_linguistic_agent_spec_schema1_loads() -> None:
     assert spec.tool is None
 
 
-def test_sequence_composite_schema1_loads() -> None:
+def test_single_branch_composite_schema1_loads() -> None:
     """A Schema 1 composite (single-branch) loads with bare pattern names."""
     catalog = load_patterns(SMALL_SEQUENCE_FULL_YAML)
     spec = catalog.get("extract_and_summarize")
@@ -245,7 +245,7 @@ def test_sequence_composite_schema1_loads() -> None:
     assert spec.branches[0] == ["extract", "summarize"]
 
 
-def test_parallel_composite_schema1_loads() -> None:
+def test_multi_branch_composite_schema1_loads() -> None:
     """A Schema 1 composite (multi-branch) loads with bare pattern names."""
     catalog = load_patterns(PARALLEL_FULL_YAML)
     spec = catalog.get("distribute_summary")

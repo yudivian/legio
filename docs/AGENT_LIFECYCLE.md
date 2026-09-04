@@ -83,10 +83,11 @@ Every operation lives at one of two levels:
 
 - The **definition**: the pattern spec (`PatternSpec`, derived from YAML).
 - Its **queue**, named after the type (e.g. `summ`).
-- Its **kind binding**: the concrete agent type (`linguistic` / `tool` /
-  `sequence` / `parallel`) derived from the spec.
+- Its **kind binding**: the concrete agent type (`tool` / `linguistic` on
+  atomics; the unified `composite` runner on `type: composite`, no kind)
+  derived from the spec.
 - Its **dependencies** (from the spec): a composite references other classes by
-  name (its `sequence` / `parallel`). Depended-on classes are the class's
+  name (its `branches`). Depended-on classes are the class's
   **dependencies**; classes that reference it are its **dependents**.
 - Governed by the **AgentRegistry** (existence reflected in the live catalog);
   its instances are brought up by the **TaskManager** executing the fact at the
@@ -1089,8 +1090,8 @@ the agents are untouched. Implementation lands with the Runtime's lifecycle ops
 
 ## 7. Dependencies (from the YAML spec)
 
-Dependencies come from the spec: a composite (`sequence` / `parallel`)
-references other classes by name. These govern enable/disable/destroy behavior.
+Dependencies come from the spec: a composite (via its `branches`) references
+other classes by name. These govern enable/disable/destroy behavior.
 
 - **Create** evaluates its **dependencies (down)**: a class is created enabled
   only if all dependencies exist and are enabled; otherwise born disabled.
