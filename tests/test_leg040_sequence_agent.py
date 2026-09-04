@@ -29,14 +29,19 @@ from legio.naming import queue_key
 
 
 class BuildStep(AgentBase):
-    """One stage of a sequence: builds the payload including its own output."""
+    """One stage of a sequence: reads its input under ``input_as`` and constructs
+    the new payload under ``output_as``, carrying the running ``value`` forward
+    through the re-keying handoff to the next stage's ``input_as``."""
 
-    def __init__(self, *, key: str, **kwargs: object) -> None:
+    def __init__(self, *, key: str, input_as: str, output_as: str, **kwargs: object) -> None:
         self._key = key
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._input_as = input_as
+        super().__init__(**kwargs, output_as=output_as)  # type: ignore[call-arg]
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict:
-        return build_payload(request.payload, {self._key: request.payload.get("seed", 0)})
+        inp = dict(request.payload.get(self._input_as, {}))
+        value = inp.get("value", 0)
+        return build_payload({self._key: value, "value": value}, output_as=self._output_as)
 
 
 async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
@@ -50,17 +55,18 @@ async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
 def build_sequence(
     *,
     db: AsyncBeaverDB,
-    sequence_route: tuple[str, ...],
+    sequence_route: tuple[tuple[str, str], ...],
     agent_id: str = "seq",
+    input_as: str = "seq",
 ) -> SequenceAgent:
-    return SequenceAgent(agent_id=agent_id, db=db, sequence_route=sequence_route)
+    return SequenceAgent(agent_id=agent_id, db=db, sequence_route=sequence_route, input_as=input_as)
 
 
 def step_request(
     *,
     task_id: str,
     payload: dict,
-    route: tuple[str, ...],
+    route: tuple[tuple[str, str], ...],
     current_index: int,
     end_of_level_queue: str,
     level: int = 1,
@@ -70,7 +76,7 @@ def step_request(
         current_index=current_index,
         end_of_level_queue=end_of_level_queue,
         level=level,
-        launcher_class=route[0] if route else "",
+        launcher_class=route[0][0] if route else "",
         task_id=task_id,
         payload=payload,
     )
@@ -80,12 +86,13 @@ def step_request(
 async def test_sequence_forwards_to_first_stage_of_flattened_route(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """A nested sequence re-seeds its first stage with current_index 0."""
-    seq = build_sequence(db=beaver_db, sequence_route=("a", "b"))
+    """A nested sequence re-seeds its first stage with current_index 0 and
+    re-keys the incoming payload under the first stage's ``input_as``."""
+    seq = build_sequence(db=beaver_db, sequence_route=(("a", "a"), ("b", "b")), input_as="seq")
     request = step_request(
         task_id="T-seq",
-        payload={"seed": 7},
-        route=("outer", "seq"),  # the sequence is step 1 of the outer route
+        payload={"seq": {"seed": 7}},
+        route=(("outer", "outer"), ("seq", "seq")),  # the sequence is step 1 of the outer route
         current_index=1,
         end_of_level_queue="result:T-seq",
     )
@@ -97,13 +104,13 @@ async def test_sequence_forwards_to_first_stage_of_flattened_route(
     first = await pop_one(beaver_db, "a")
     assert first is not None
     forwarded = ExecutionRequestMessage.model_validate(first)
-    assert forwarded.level_route == ("a", "b")
+    assert forwarded.level_route == (("a", "a"), ("b", "b"))
     assert forwarded.current_index == 0
     assert forwarded.task_id == "T-seq"
     assert forwarded.end_of_level_queue == "result:T-seq"
     assert forwarded.level == 1
     assert forwarded.launcher_class == "outer"
-    assert forwarded.payload == {"seed": 7}
+    assert forwarded.payload == {"a": {"seed": 7}}
 
 
 @pytest.mark.asyncio
@@ -111,11 +118,11 @@ async def test_sequence_preserves_level_and_end_queue_for_branch(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     """A sequence inside a parallel branch keeps its level and branch closer."""
-    seq = build_sequence(db=beaver_db, sequence_route=("p", "q"))
+    seq = build_sequence(db=beaver_db, sequence_route=(("p", "p"), ("q", "q")), input_as="seq")
     request = step_request(
         task_id="T-branch",
-        payload={"v": 1},
-        route=("par", "seq"),
+        payload={"seq": {"v": 1}},
+        route=(("par", "par"), ("seq", "seq")),
         current_index=1,
         end_of_level_queue="gather:par",  # the parallel's gathering queue
         level=2,
@@ -129,7 +136,8 @@ async def test_sequence_preserves_level_and_end_queue_for_branch(
     forwarded = ExecutionRequestMessage.model_validate(first)
     assert forwarded.level == 2
     assert forwarded.end_of_level_queue == "gather:par"
-    assert forwarded.level_route == ("p", "q")
+    assert forwarded.level_route == (("p", "p"), ("q", "q"))
+    assert forwarded.payload == {"p": {"v": 1}}
 
 
 @pytest.mark.asyncio
@@ -137,14 +145,19 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
     beaver_db: AsyncBeaverDB,
 ) -> None:
     """A two-step sequence runs step 1 then step 2; step 2 consumes step 1's
-    output (ordering by the token) and the final result lands on the closer."""
-    seq = build_sequence(db=beaver_db, sequence_route=("step1", "step2"))
-    step1 = BuildStep(agent_id="step1", db=beaver_db, key="s1")
-    step2 = BuildStep(agent_id="step2", db=beaver_db, key="s2")
+    output via the re-keying handoff (ordering by the token) and the final
+    result lands on the closer under the last stage's ``output_as``."""
+    seq = build_sequence(
+        db=beaver_db, sequence_route=(("step1", "step1"), ("step2", "o1")), input_as="seq"
+    )
+    step1 = BuildStep(
+        agent_id="step1", db=beaver_db, key="s1", input_as="step1", output_as="o1"
+    )
+    step2 = BuildStep(agent_id="step2", db=beaver_db, key="s2", input_as="o1", output_as="o2")
     request = step_request(
         task_id="T-2",
-        payload={"seed": 3},
-        route=("seq",),
+        payload={"seq": {"value": 3}},
+        route=(("seq", "seq"),),
         current_index=0,
         end_of_level_queue="result:T-2",
     )
@@ -155,8 +168,9 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
     first = await pop_one(beaver_db, "step1")
     assert first is not None
     first_request = ExecutionRequestMessage.model_validate(first)
-    assert first_request.level_route == ("step1", "step2")
+    assert first_request.level_route == (("step1", "step1"), ("step2", "o1"))
     assert first_request.current_index == 0
+    assert first_request.payload == {"step1": {"value": 3}}
     await beaver_db.queue(queue_key("step1")).put(first_request.model_dump(mode="json"), priority=0.0)
     assert await step1.process_next() is True
 
@@ -164,7 +178,7 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
     assert second is not None
     second_request = ExecutionRequestMessage.model_validate(second)
     assert second_request.current_index == 1
-    assert second_request.payload == {"seed": 3, "s1": 3}
+    assert second_request.payload == {"o1": {"s1": 3, "value": 3}}
     await beaver_db.queue(queue_key("step2")).put(second_request.model_dump(mode="json"), priority=0.0)
     assert await step2.process_next() is True
 
@@ -172,7 +186,7 @@ async def test_sequence_runs_steps_in_order_and_builds_payload(
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-2"
-    assert result.payload == {"seed": 3, "s1": 3, "s2": 3}
+    assert result.payload == {"o2": {"s2": 3, "value": 3}}
 
 
 @pytest.mark.asyncio
@@ -182,7 +196,7 @@ async def test_sequence_with_empty_route_fails_visibly(beaver_db: AsyncBeaverDB)
     request = step_request(
         task_id="T-empty",
         payload={},
-        route=("seq",),
+        route=(("seq", "seq"),),
         current_index=0,
         end_of_level_queue="result:T-empty",
     )

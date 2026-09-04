@@ -40,21 +40,32 @@ class SequenceAgent(AgentBase):
         *,
         agent_id: str,
         db: Any,
-        sequence_route: Sequence[str],
+        sequence_route: Sequence[tuple[str, str]],
+        input_as: str = "",
     ) -> None:
         super().__init__(agent_id=agent_id, db=db)
-        self._sequence_route = tuple(sequence_route)
+        # Each stage is (class, input_as) — the class and the alias under which
+        # that stage reads its input (re-keying, §12.1).
+        self._sequence_route = tuple((c, a) for c, a in sequence_route)
+        self._input_as = input_as
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any] | None:
         """Re-seed the first stage of this sequence; forward-only, no payload."""
         if not self._sequence_route:
             raise ValueError(f"sequence agent {self._agent_id!r} has no stages")
-        first_stage = self._sequence_route[0]
+        first_class, first_input_as = self._sequence_route[0]
         logger.info(
             "sequence forward agent=%s task=%s stage=%s",
             self._agent_id,
             request.task_id,
-            first_stage,
+            first_class,
+        )
+        # Re-key the incoming payload (under this sequence's input_as) under the
+        # first stage's input_as (AGENT_LIFECYCLE §12.1).
+        payload = (
+            {first_input_as: request.payload.get(self._input_as)}
+            if self._input_as and self._input_as in request.payload
+            else dict(request.payload)
         )
         next_request = ExecutionRequestMessage(
             level_route=self._sequence_route,
@@ -64,9 +75,9 @@ class SequenceAgent(AgentBase):
             launcher_class=request.launcher_class,
             task_id=request.task_id,
             branch_id=request.branch_id,
-            payload=request.payload,
+            payload=payload,
         )
-        await self._deliver(first_stage, next_request.model_dump(mode="json"))
+        await self._deliver(first_class, next_request.model_dump(mode="json"))
         return None
 
 

@@ -1,12 +1,12 @@
 """`legio.flow.payload` — payload building (AGENT_LIFECYCLE §12.1).
 
-An agent receives the incoming ``payload``, performs its processing, and builds
-the **new** ``payload`` that travels in the outgoing message (exactly one
-container, Schema 2). ``build_payload`` is that single rule: it never mutates
-the incoming payload; the produced payload is the union of the incoming
-keys plus the step's output keys (the step's keys win on collision, H3).
-``namespace`` (the pattern's ``output_as``) stores the whole output under one
-key so collisions cannot occur.
+Each agent receives the incoming ``payload``, reads only what it needs under its
+``input_as`` (an alias it owns), performs its processing, and **builds its own
+new payload** under its ``output_as``. The payload is **construction, not
+accumulation**: ``build_payload`` produces exactly ``{output_as: output}`` — it
+never merges or extends the incoming payload, and it never mutates state. The
+re-keying (cambio de clave) to the next agent's ``input_as`` is the handoff
+step's responsibility (AGENT_LIFECYCLE §12.1, Session 20), not this builder's.
 """
 
 from __future__ import annotations
@@ -17,23 +17,12 @@ from typing import Any
 __all__ = ["build_payload"]
 
 
-def build_payload(
-    payload: Mapping[str, Any] | None,
-    output: Mapping[str, Any],
-    *,
-    namespace: str | None = None,
-) -> dict[str, Any]:
-    """Build the new ``payload`` from the incoming one and the step's output.
+def build_payload(output: Mapping[str, Any], *, output_as: str) -> dict[str, Any]:
+    """Build the agent's new payload, constructed under its ``output_as``.
 
-    ``payload`` is the incoming state (the request's single container of Schema
-    2); ``output`` is the step's produced result. With ``namespace`` the output
-    is stored whole under that key; otherwise the keys are unioned and the
-    step's keys win on collision (H3). Never mutates ``payload``; the result is
-    a new dict.
+    ``output`` is the step's produced result; ``output_as`` is the agent's
+    declared write alias (Schema 1). The result is a brand-new dict with a
+    single key — ``{output_as: <output>}``. There is no union, no accumulation,
+    and the incoming payload is never extended or mutated.
     """
-    base = dict(payload or {})
-    if namespace is not None:
-        base[namespace] = dict(output)
-        return base
-    base.update(dict(output))
-    return base
+    return {output_as: dict(output)}

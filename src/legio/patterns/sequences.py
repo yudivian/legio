@@ -23,27 +23,32 @@ def _agent_name(spec: AgentSpec) -> str:
     return spec.name
 
 
-def _collect_sequence_route(spec: AgentSpec) -> tuple[str, ...]:
-    """Collect ordered stage names from a sequence composite."""
+def _collect_sequence_route(spec: AgentSpec) -> tuple[tuple[str, str], ...]:
+    """Collect ordered stage (class, input_as) pairs from a sequence composite."""
     if spec.kind is not AgentKind.SEQUENCE:
         raise UnrecoverableError(f"spec {spec.name!r} is not a sequence composite")
     if not spec.sequence:
         raise UnrecoverableError(f"sequence {spec.name!r} has no stages")
-    return tuple(_agent_name(child) for child in spec.sequence)
+    return tuple((child.name, child.input.input_as) for child in spec.sequence)
 
 
-def starting_route(spec: AgentSpec) -> tuple[str, ...]:
+def starting_route(spec: AgentSpec) -> tuple[tuple[str, str], ...]:
     """Return the route the submit delivers to for a starting agent.
 
-    - A single atomic pattern (tool/linguistic) yields ``(spec.name,)``.
-    - A ``main`` sequence is flattened to its stage names in order (R-3).
-    - A parallel root yields ``(spec.name,)`` — the submit delivers to the
-      parallel's own class and the ParallelAgent concretizes the fan-out.
+    Each element is a ``(class, input_as)`` pair (AGENT_LIFECYCLE §12.1): the
+    delivery class and the alias under which that step reads — the re-keying
+    information. The submit re-keys the client payload under the first step's
+    ``input_as``.
+
+    - A single atomic pattern (tool/linguistic) yields ``((spec.name, input_as),)``.
+    - A ``main`` sequence is flattened to its stage (class, input_as) pairs (R-3).
+    - A parallel root yields ``((spec.name, input_as),)`` — the submit delivers to
+      the parallel's own class and the ParallelAgent concretizes the fan-out.
     - Anything else (nested composite inside a sequence) raises.
     """
     if spec.type is AgentType.ATOMIC:
         # Atomic agent (tool/linguistic) is its own route
-        return (spec.name,)
+        return ((spec.name, spec.input.input_as),)
 
     if spec.kind is AgentKind.SEQUENCE:
         return _collect_sequence_route(spec)
@@ -51,7 +56,7 @@ def starting_route(spec: AgentSpec) -> tuple[str, ...]:
     if spec.kind is AgentKind.PARALLEL:
         # A parallel root is itself the starting agent: the submit delivers to
         # its own class queue and the ParallelAgent concretizes the fan-out.
-        return (spec.name,)
+        return ((spec.name, spec.input.input_as),)
 
     raise UnrecoverableError(
         f"pattern {spec.name!r} is a composite without a linear atomic sequence"

@@ -172,6 +172,22 @@ are red for the yet-unimplemented surface.
 
 ### R-4 — Composites
 
+> **In progress (current variation):** unify composites — see LEG-044 below. This
+> supersedes LEG-040/041/042/043's separate `kind: sequence|parallel` model.
+
+- **LEG-044** Unify composites: replace `kind: sequence|parallel` with a single
+  `composite` carrying `branches`. A `composite` with 1 branch is a sequence, >1
+  a parallel; each branch is a route/sequence of agents (atomic — a sequence of
+  size 1 — or composite, any cardinality, recursive). One composite runner
+  (ramify → gather → build its `output_as`); branch fan-out deposits each
+  branch's **own** `level_route` (not a single class), so a branch may be
+  atomic / sequence / composite. Construction + re-keying model (Session 20);
+  flow contract = starting agent's `input_as`/`output_as`.
+  - **Plan**: `docs/JOURNALS/2026-09-03.md` Session 22 (Fase 0-4). Docs first
+    (AGENTS.md rule 12), then code, one authorized step at a time.
+  - **Accept**: examples behave identically under the unified model; nested
+    composite branches (multi-step, composite-in-branch) run correctly; docs
+    re-written first; suite green.
 - **LEG-040** SequenceAgent (advance index, chain, continuation).
   - **Accept**: a 3-stage sequence runs to completion on one node; index
     advances exactly once per stage; final stage delivers to parent/client.

@@ -47,13 +47,15 @@ decoupled philosophy (AGENTS.md rule 8).
   `end_of_level_queue` — the creator's gathering queue if `level > 1` (branch
   close) or the submit's final-result queue if `level == 1` (flow end). Nothing
   loops back through the sequence.
-- Payload build across steps (H3) — each step receives the incoming payload,
-  applies its outcome and **builds the next payload** via
-  `legio.flow.build_payload` (`output_as` as the `namespace` on collision), so
-  a chain of any length keeps every earlier step's keys, in order. There is no
-  out-of-message accumulator; the built dict is exactly what the next request
-  carries as `payload` (or what the flow end delivers to the final-result
-  queue).
+- Payload build across steps (AGENT_LIFECYCLE §12.1) — each step receives the
+  incoming payload re-keyed under its `input_as`, applies its outcome and
+  **builds a NEW payload via `legio.flow.build_payload` under its `output_as`**
+  (construction, NOT accumulation — no "keeps every earlier step's keys"). When
+  the step advances, the base re-keys the produced value under the next step's
+  `input_as`; the last step delivers its `output_as` payload to the level closer.
+  There is no out-of-message accumulator; the built dict is exactly what the
+  next request carries as `payload` (or what the flow end delivers to the
+  final-result queue).
 - Parent continuation: at branch close the result returns via `end_of_level_queue`
   to the launching parallel's gathering queue (LEG-051).
 

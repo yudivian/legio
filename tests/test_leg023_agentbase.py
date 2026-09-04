@@ -13,6 +13,7 @@ is native beaver; queues are addressed by name on the shared db.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 from beaver import AsyncBeaverDB
@@ -26,7 +27,7 @@ def make_request(
     *,
     task_id: str,
     current_index: int = 0,
-    route: tuple[str, ...] = ("main",),
+    route: tuple[tuple[str, str], ...] = (("main", "main"),),
     end_of_level_queue: str = "client",
     level: int = 1,
     payload: dict | None = None,
@@ -37,7 +38,7 @@ def make_request(
         end_of_level_queue=end_of_level_queue,
         level=level,
         task_id=task_id,
-        payload={"v": 1} if payload is None else payload,
+        payload={"main": {"v": 1}} if payload is None else payload,
     )
 
 
@@ -50,17 +51,33 @@ async def pop_one(db: AsyncBeaverDB, agent_id: str) -> dict | None:
 
 
 class FinalAgent(AgentBase):
-    """Single/final step: returns state, so the base finishes the level."""
+    """Single/final step: reads its input under ``input_as`` and constructs its
+    output (the builder's ``{output_as: output}``) allowing the base to finish."""
+
+    def __init__(
+        self, *, agent_id: str, db: Any, input_as: str | None = None, output_as: str | None = None, **kwargs: object
+    ) -> None:
+        self._input_as = input_as or agent_id
+        super().__init__(agent_id=agent_id, db=db, output_as=output_as or agent_id)
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict:
-        return {"v": request.payload.get("v", 0), "consumed": request.payload.get("in", {})}
+        inp = dict(request.payload.get(self._input_as, {}))
+        return build_payload({"v": inp.get("v", 0)}, output_as=self._output_as)
 
 
 class ChainAgent(AgentBase):
-    """One link of a chain: return state; the base advances until level end."""
+    """One link of a chain: read the value under ``input_as``, rebuild it
+    incremented under ``output_as``; the base advances until level end."""
+
+    def __init__(
+        self, *, agent_id: str, db: Any, input_as: str | None = None, output_as: str | None = None, **kwargs: object
+    ) -> None:
+        self._input_as = input_as or agent_id
+        super().__init__(agent_id=agent_id, db=db, output_as=output_as or agent_id)
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict:
-        return {"v": int(request.payload.get("v", 0)) + 1}
+        inp = dict(request.payload.get(self._input_as, {}))
+        return build_payload({"v": int(inp.get("v", 0)) + 1}, output_as=self._output_as)
 
 
 class FailingAgent(AgentBase):
@@ -76,12 +93,20 @@ class FailingAgent(AgentBase):
 
 
 class BuildAgent(AgentBase):
-    """A chain link: takes the incoming payload and builds the new payload
-    including its own step output (H3 → ``build_payload``)."""
+    """A chain link: reads its input under ``input_as`` and constructs the new
+    payload carrying a running ``s<stage>`` value plus ``value`` (the re-keying
+    handoff carries it to the next step's ``input_as``)."""
+
+    def __init__(
+        self, *, agent_id: str, db: Any, input_as: str, output_as: str, **kwargs: object
+    ) -> None:
+        self._input_as = input_as
+        super().__init__(agent_id=agent_id, db=db, output_as=output_as)
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict:
-        step = 1 + sum(1 for key in request.payload if key.startswith("s"))
-        return build_payload(request.payload, {f"s{step}": step})
+        inp = dict(request.payload.get(self._input_as, {}))
+        stage = 1 + sum(1 for key in inp if key.startswith("s"))
+        return build_payload({**inp, f"s{stage}": stage}, output_as=self._output_as)
 
 
 @dataclass
@@ -114,16 +139,18 @@ async def test_single_step_task_completes_with_result_in_place(beaver_db: AsyncB
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-single"
-    assert result.payload["v"] == 1
+    assert result.payload["main"]["v"] == 1
 
 
 @pytest.mark.asyncio
 async def test_two_step_task_runs_both_steps_and_returns(beaver_db: AsyncBeaverDB) -> None:
     first = build(ChainAgent, agent_id="main", db=beaver_db)
     second = build(ChainAgent, agent_id="step", db=beaver_db)
-    route = ("main", "step")
+    route = (("main", "main"), ("step", "step"))
     await beaver_db.queue(queue_key("main")).put(
-        make_request(task_id="T-two", current_index=0, route=route).model_dump(mode="json"),
+        make_request(
+            task_id="T-two", current_index=0, route=route, payload={"main": {"v": 1}}
+        ).model_dump(mode="json"),
         priority=0.0,
     )
 
@@ -133,7 +160,7 @@ async def test_two_step_task_runs_both_steps_and_returns(beaver_db: AsyncBeaverD
     step_message = ExecutionRequestMessage.model_validate(step_item)
     assert step_message.task_id == "T-two"
     assert step_message.current_index == 1
-    assert step_message.payload["v"] == 2
+    assert step_message.payload["step"]["v"] == 2
     await beaver_db.queue(queue_key("step")).put(step_message.model_dump(mode="json"), priority=0.0)
 
     assert await second.run() == 1
@@ -141,7 +168,7 @@ async def test_two_step_task_runs_both_steps_and_returns(beaver_db: AsyncBeaverD
     assert ret_item is not None
     result = ExecutionResultMessage.model_validate(ret_item)
     assert result.task_id == "T-two"
-    assert result.payload["v"] == 3
+    assert result.payload["step"]["v"] == 3
 
 
 @pytest.mark.asyncio
@@ -210,7 +237,7 @@ async def test_root_task_deposits_result_to_end_of_level_queue(
     result_item = await pop_one(beaver_db, "result:T-root")
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
-    assert result.payload["v"] == 1
+    assert result.payload["main"]["v"] == 1
 
     with pytest.raises(IndexError):
         await beaver_db.queue(queue_key("client:T-root")).get(block=False)
@@ -220,16 +247,26 @@ async def test_root_task_deposits_result_to_end_of_level_queue(
 async def test_three_stage_chain_builds_payload_across_steps(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    """B1/C1: a chain of three builds the payload message-to-message."""
-    agents = [build(BuildAgent, agent_id=a, db=beaver_db) for a in ("main", "mid", "last")]
-    route = ("main", "mid", "last")
+    """B1/C1: a chain of three builds the payload message-to-message.
+    Each stage constructs its own payload under its ``output_as``; the re-keying
+    handoff carries it under the next stage's ``input_as``, and the final step
+    closes the level with its own ``output_as`` wrapper."""
+    agents = [
+        build(BuildAgent, agent_id=a, db=beaver_db, input_as=ia, output_as=oa)
+        for a, ia, oa in (
+            ("main", "main", "out1"),
+            ("mid", "mid", "out2"),
+            ("last", "last", "out3"),
+        )
+    ]
+    route = (("main", "main"), ("mid", "mid"), ("last", "last"))
     await beaver_db.queue(queue_key("main")).put(
         make_request(
             task_id="T-chain",
             current_index=0,
             route=route,
             end_of_level_queue="result:T-chain",
-            payload={},
+            payload={"main": {}},
         ).model_dump(mode="json"),
         priority=0.0,
     )
@@ -238,18 +275,18 @@ async def test_three_stage_chain_builds_payload_across_steps(
     mid_item = await pop_one(beaver_db, "mid")
     assert mid_item is not None
     mid_msg = ExecutionRequestMessage.model_validate(mid_item)
-    assert mid_msg.payload == {"s1": 1}
+    assert mid_msg.payload == {"mid": {"s1": 1}}
     await beaver_db.queue(queue_key("mid")).put(mid_msg.model_dump(mode="json"), priority=0.0)
 
     assert await agents[1].run() == 1
     last_item = await pop_one(beaver_db, "last")
     assert last_item is not None
     last_msg = ExecutionRequestMessage.model_validate(last_item)
-    assert last_msg.payload == {"s1": 1, "s2": 2}
+    assert last_msg.payload == {"last": {"s1": 1, "s2": 2}}
     await beaver_db.queue(queue_key("last")).put(last_msg.model_dump(mode="json"), priority=0.0)
 
     assert await agents[2].run() == 1
     row = await pop_one(beaver_db, "result:T-chain")
     assert row is not None
     result = ExecutionResultMessage.model_validate(row)
-    assert result.payload == {"s1": 1, "s2": 2, "s3": 3}
+    assert result.payload == {"out3": {"s1": 1, "s2": 2, "s3": 3}}

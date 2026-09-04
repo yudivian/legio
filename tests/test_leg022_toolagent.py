@@ -37,7 +37,7 @@ def crafted_request(
     *, task_id: str, payload: dict
 ) -> ExecutionRequestMessage:
     return ExecutionRequestMessage(
-        level_route=("main_a", "summ"),
+        level_route=(("main_a", "main_a"), ("summ", "summ")),
         current_index=1,
         end_of_level_queue="main_a",
         task_id=task_id,
@@ -56,7 +56,7 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
         policy={"timeout": 30, "retries": 0},
     )
 
-    request = crafted_request(task_id="T-1", payload={"text": "hello", "factor": 2})
+    request = crafted_request(task_id="T-1", payload={"summ": {"text": "hello", "factor": 2}})
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
     agent = ToolAgent(
@@ -65,6 +65,8 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
         available_tools=registry,
         tool_name="transform",
         parameters={"text": "{text}", "factor": "{factor}"},
+        input_as="summ",
+        output_as="summ",
     )
 
     handled = await agent.process_next()
@@ -74,8 +76,8 @@ async def test_fake_tool_executes_end_to_end_with_result_deposited(
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == "T-1"
-    # factor=2, so "HELLO" * 2 = "HELLOHELLO"
-    assert result.payload["transformed"] == "HELLOHELLO"
+    # factor=2, so "HELLO" * 2 = "HELLOHELLO", wrapped under the agent's output_as
+    assert result.payload["summ"]["transformed"] == "HELLOHELLO"
 
 
 @pytest.mark.asyncio
@@ -89,8 +91,8 @@ async def test_input_signature_rejection_is_never_silent(
         policy={"timeout": 30, "retries": 0},
     )
 
-    # Missing required parameter 'text'
-    request = crafted_request(task_id="T-bad-in", payload={"factor": 2})
+    # Missing required parameter 'text' (input read under the agent's input_as)
+    request = crafted_request(task_id="T-bad-in", payload={"summ": {"factor": 2}})
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
     agent = ToolAgent(
@@ -99,6 +101,8 @@ async def test_input_signature_rejection_is_never_silent(
         available_tools=registry,
         tool_name="transform",
         parameters={"text": "{text}", "factor": "{factor}"},
+        input_as="summ",
+        output_as="summ",
     )
 
     await agent.process_next()
@@ -135,6 +139,8 @@ async def test_no_due_item_returns_false(beaver_db: AsyncBeaverDB) -> None:
         available_tools=registry,
         tool_name="transform",
         parameters={"text": "{text}", "factor": "{factor}"},
+        input_as="summ",
+        output_as="summ",
     )
 
     assert await agent.process_next() is False

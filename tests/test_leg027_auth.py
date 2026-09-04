@@ -167,6 +167,8 @@ def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
         available_tools=registry,
         tool_name="transform",
         parameters={"text": "{text}"},
+        input_as="transform",
+        output_as="transform",
     )
 
 
@@ -183,6 +185,8 @@ def build_upper_agent(db: AsyncBeaverDB) -> ToolAgent:
         available_tools=registry,
         tool_name="upper",
         parameters={"text": "{text}"},
+        input_as="upper",
+        output_as="upper",
     )
 
 
@@ -205,7 +209,7 @@ async def test_leg026_example_runs_behind_auth(
     owner = await ac.get(f"/status/{task_id}", headers=bearer("tok-a"))
     assert owner.status_code == 200, owner.text
     assert owner.json()["state"] == "completed"
-    assert owner.json()["output"] == {"text": "hi", "upper": "HI"}
+    assert owner.json()["output"] == {"upper": {"upper": "HI"}}
 
 
 @pytest.mark.asyncio

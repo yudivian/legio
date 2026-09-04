@@ -42,20 +42,28 @@ class LinguisticAgent(AgentBase):
         prompt_template: str,
         output_model: type[BaseModel],
         system_vars: Mapping[str, Any] | None = None,
+        input_as: str = "",
+        output_as: str = "",
     ) -> None:
         super().__init__(
             agent_id=agent_id,
             db=db,
+            output_as=output_as,
         )
         self._lingo = lingo_client
         self._prompt = prompt_template
         self._output_model = output_model
+        self._input_as = input_as
         ready_vars = dict(system_vars or {})
         ready_vars.setdefault("current_date", datetime.now(UTC).date().isoformat())
         self._system_vars = ready_vars
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any]:
-        scoped: dict[str, Any] = dict(request.payload)
+        scoped: dict[str, Any] = (
+            dict(request.payload.get(self._input_as, {}))
+            if self._input_as and self._input_as in request.payload
+            else dict(request.payload)
+        )
         logger.debug(
             "linguistic input agent=%s task=%s keys=%s",
             self._agent_id,
@@ -76,7 +84,7 @@ class LinguisticAgent(AgentBase):
             self._agent_id,
             request.task_id,
         )
-        return build_payload(request.payload, output)
+        return build_payload(output, output_as=self._output_as)
 
 
 __all__ = ["LinguisticAgent"]

@@ -93,18 +93,19 @@ def _forbidden() -> JSONResponse:
     return JSONResponse(status_code=403, content={"code": "forbidden"})
 
 
-def _resolve_route(agent_name: str, catalog: Catalog | None) -> tuple[str, ...]:
+def _resolve_route(agent_name: str, catalog: Catalog | None) -> tuple[tuple[str, str], ...]:
     """Resolve the starting route for an agent.
 
     If a pattern catalog is provided, look up the agent as a starting pattern
     and derive the route via ``starting_route``. Otherwise, return the agent
-    name as a single-agent route.
+    name as a single-agent route with its ``input_as`` defaulted to the agent
+    name (no catalog means no declared input contract to read the real alias).
     """
     if catalog is not None and agent_name in catalog.specs:
         spec = catalog.specs[agent_name]
         if spec.main:
             return starting_route(spec)
-    return (agent_name,)
+    return ((agent_name, agent_name),)
 
 
 def create_app(
@@ -143,7 +144,7 @@ def create_app(
 
         route = _resolve_route(body.agent, pattern_catalog)
         task_id = await manager.submit(client_id, route, body.payload)
-        logger.info("api submit task=%s client=%s agent=%s route=%s", task_id, client_id, body.agent, ",".join(route))
+        logger.info("api submit task=%s client=%s agent=%s route=%s", task_id, client_id, body.agent, ",".join(c for c, _ in route))
         return SubmitResponse(task_id=task_id)
 
     @app.get("/status/{task_id}", response_model=StatusResponse)

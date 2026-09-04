@@ -40,6 +40,8 @@ def build_transform_agent(db: AsyncBeaverDB) -> ToolAgent:
         available_tools=registry,
         tool_name="transform",
         parameters={"text": "{text}", "factor": "{factor}"},
+        input_as="transform",
+        output_as="transform",
     )
 
 
@@ -70,8 +72,8 @@ async def test_transform_e2e_over_rest_and_agent(
         assert st.status_code == 200, st.text
         entry = st.json()
         assert entry["state"] == "completed"
-        # factor=3, so "HELLO" * 3 = "HELLOHELLOHELLO"
-        assert entry["output"] == {"text": "hello", "factor": 3, "transformed": "HELLOHELLOHELLO"}
+        # factor=3, so "HELLO" * 3 = "HELLOHELLOHELLO", wrapped under output_as
+        assert entry["output"] == {"transform": {"transformed": "HELLOHELLOHELLO"}}
         assert entry["result_key"] == result_queue_key(task_id)
 
         result_item = await beaver_db.queue(
@@ -79,9 +81,7 @@ async def test_transform_e2e_over_rest_and_agent(
         ).peek()
         assert result_item is not None
         assert result_item.data["payload"] == {
-            "text": "hello",
-            "factor": 3,
-            "transformed": "HELLOHELLOHELLO",
+            "transform": {"transformed": "HELLOHELLOHELLO"},
         }
 
         log_text = caplog.text

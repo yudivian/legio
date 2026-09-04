@@ -6,8 +6,11 @@ and ``ExecutionResultMessage`` (agent → parent or final-result queue).
 container carries the accepted request facts and the produced output; there is
 no separate ``output`` field and no ``input`` nesting.
 
-Token fields (Schema 2, AGENT_LIFECYCLE §4.11): ``level_route`` (the classes of
-this level), ``current_index`` (0-based position), ``end_of_level_queue`` (the
+Token fields (Schema 2, AGENT_LIFECYCLE §4.11): ``level_route`` (the route of
+this level — a tuple of ``(class, input_as)`` pairs, one per position: the class
+the step is delivered to and the ``input_as`` under which that step reads, the
+information the re-keying needs, AGENT_LIFECYCLE §12.1), ``current_index``
+(0-based position), ``end_of_level_queue`` (the
 queue that closes this level — the submit's final-result queue at level 1, a
 parallel's gathering queue for branches), ``level`` (branch depth, starts at 1),
 ``launcher_class`` (informational), ``task_id``, and ``branch_id`` (a parallel's
@@ -27,6 +30,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SCHEMA_VERSION = 1000
+
+# A route step: (class, input_as) — the delivery class and the alias under which
+# that step reads its input (the re-keying target, AGENT_LIFECYCLE §12.1).
+RouteStep = tuple[str, str]
 
 
 class MessageType(str, Enum):
@@ -53,7 +60,7 @@ class ImmutableMessage(BaseModel):
         return value
 
     schema_version: int = Field(default=SCHEMA_VERSION, frozen=True)
-    level_route: tuple[str, ...] = Field(default_factory=tuple)
+    level_route: tuple[RouteStep, ...] = Field(default_factory=tuple)
     current_index: int = 0
     end_of_level_queue: str = ""
     level: int = 1
@@ -82,4 +89,5 @@ __all__ = [
     "ExecutionResultMessage",
     "ImmutableMessage",
     "MessageType",
+    "RouteStep",
 ]

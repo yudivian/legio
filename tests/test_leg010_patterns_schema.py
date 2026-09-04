@@ -317,18 +317,21 @@ def test_reuse_by_position() -> None:
 
 
 def test_starting_route_sequence() -> None:
-    """starting_route returns ordered stage names for sequence."""
+    """starting_route returns ordered (class, input_as) pairs for a sequence."""
     from legio.patterns import starting_route
 
     catalog = load_patterns(SMALL_SEQUENCE_YAML)
     spec = catalog.get("extract_and_summarize")
     assert spec is not None
     route = starting_route(spec)
-    assert route == ("extract", "summarize")
+    assert route == (
+        ("extract", "text"),
+        ("summarize", "extracted"),
+    )
 
 
 def test_starting_route_atomic() -> None:
-    """starting_route returns (name,) for atomic agent."""
+    """starting_route returns ((name, input_as),) for atomic agent."""
     from legio.patterns import starting_route
     from legio.patterns.schema1 import InputContract, OutputContract
 
@@ -342,7 +345,7 @@ def test_starting_route_atomic() -> None:
         parameters={},
     )
     route = starting_route(spec)
-    assert route == ("single_tool",)
+    assert route == (("single_tool", "x"),)
 
 
 def test_starting_route_starts_parallel_root_on_its_own_class() -> None:
@@ -353,7 +356,7 @@ def test_starting_route_starts_parallel_root_on_its_own_class() -> None:
     catalog = load_patterns(PARALLEL_YAML)
     spec = catalog.get("distribute_summary")
     assert spec is not None
-    assert starting_route(spec) == ("distribute_summary",)
+    assert starting_route(spec) == (("distribute_summary", "payload"),)
 
 
 def test_compile_output_schema_with_union_array_nested_recursive() -> None:

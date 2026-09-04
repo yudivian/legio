@@ -37,20 +37,29 @@ class ToolAgent(AgentBase):
         available_tools: AvailableToolsRegistry,
         tool_name: str,
         parameters: Mapping[str, Any],
+        input_as: str = "",
+        output_as: str = "",
     ) -> None:
         super().__init__(
             agent_id=agent_id,
             db=db,
+            output_as=output_as,
         )
         self._available_tools = available_tools
         self._tool_name = tool_name
         self._parameters = dict(parameters)
+        self._input_as = input_as
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any]:
         error: str | None = None
         try:
-            # Resolve terse parameters against the incoming payload
-            resolved_kwargs = resolve_parameters(self._parameters, request.payload)
+            # Resolve terse parameters against the input under this agent's input_as
+            input_data: Mapping[str, Any] = (
+                request.payload.get(self._input_as, {})
+                if self._input_as and self._input_as in request.payload
+                else request.payload
+            )
+            resolved_kwargs = resolve_parameters(self._parameters, input_data)
             # Load the tool from available_tools (dotted path)
             tool = self._available_tools.load_tool(self._tool_name)
             # Validate against tool's signature at execution time
@@ -63,8 +72,8 @@ class ToolAgent(AgentBase):
                 request.task_id,
                 self._tool_name,
             )
-            # Build new payload (output_as handled by caller's spec / build_payload)
-            return build_payload(request.payload, raw_output)
+            # Build the new payload (construction under output_as; re-keying at handoff)
+            return build_payload(raw_output, output_as=self._output_as)
         except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
             logger.warning(
                 "tool execution failure agent=%s task=%s tool=%s error=%s",

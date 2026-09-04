@@ -24,7 +24,7 @@ from legio.flow.messages import MessageType
 
 def test_round_trip_preserves_all_fields() -> None:
     token = FlowToken(
-        level_route=("main_a", "summ"),
+        level_route=(("main_a", "main_a"), ("summ", "summ")),
         current_index=0,
         end_of_level_queue="result:T-1",
         level=1,
@@ -45,7 +45,7 @@ def test_round_trip_preserves_all_fields() -> None:
 
 def test_request_message_round_trip() -> None:
     request = ExecutionRequestMessage(
-        level_route=("main_a",),
+        level_route=(("main_a", "main_a"),),
         current_index=0,
         end_of_level_queue="result:T-1",
         task_id="T-1",
@@ -57,7 +57,7 @@ def test_request_message_round_trip() -> None:
 
 def test_result_message_round_trip() -> None:
     result = ExecutionResultMessage(
-        level_route=("main_a", "summ"),
+        level_route=(("main_a", "main_a"), ("summ", "summ")),
         current_index=1,
         end_of_level_queue="main_a",
         task_id="T-1",
@@ -86,7 +86,7 @@ def test_major_version_mismatch_is_rejected() -> None:
 
 def test_finality_derived_from_position() -> None:
     token = FlowToken(
-        level_route=("a", "b", "c"),
+        level_route=(("a", "a"), ("b", "b"), ("c", "c")),
         current_index=1,
         end_of_level_queue="result:T-2",
         root=True,
@@ -95,7 +95,7 @@ def test_finality_derived_from_position() -> None:
     assert token.is_final(len(token.level_route)) is False
 
     final_token = FlowToken(
-        level_route=("a", "b", "c"),
+        level_route=(("a", "a"), ("b", "b"), ("c", "c")),
         current_index=2,
         end_of_level_queue="result:T-2",
         root=True,
@@ -106,7 +106,7 @@ def test_finality_derived_from_position() -> None:
 
 def test_finality_is_not_a_flag() -> None:
     token = FlowToken(
-        level_route=("a", "b"),
+        level_route=(("a", "a"), ("b", "b")),
         current_index=1,
         end_of_level_queue="result:T-3",
         root=True,
@@ -124,7 +124,7 @@ def test_root_token_does_not_derive_its_return_target() -> None:
     an ``ultimate_return_agent_id``.
     """
     root = FlowToken(
-        level_route=("main_a",),
+        level_route=(("main_a", "main_a"),),
         current_index=0,
         end_of_level_queue="result:T-4",
         root=True,

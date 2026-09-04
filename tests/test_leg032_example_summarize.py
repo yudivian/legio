@@ -132,6 +132,8 @@ def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
         lingo_client=lingo_client,
         prompt_template="Summarize {text} and {lang}.",
         output_model=SummarizeOutput,
+        input_as="payload",
+        output_as="summ",
     )
     assess = ToolAgent(
         agent_id="assess",
@@ -139,6 +141,8 @@ def build_standing_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
         available_tools=registry,
         tool_name="assess",
         parameters={"title": "{title}", "summary": "{summary}"},
+        input_as="summ",
+        output_as="result",
     )
     return summ, assess
 
@@ -182,8 +186,9 @@ async def test_summarize_flows_linguistic_to_tool_over_rest_and_auth(
         assert entry["state"] == "completed"
         assert entry["result_key"] == result_queue_key(task_id)
 
-        # The tool should have received the linguistic output
-        assert entry["output"]["result"] == "[Foxes] A note about foxes."
+        # The tool should have received the linguistic output (re-keyed under its
+        # input_as and wrapped under the final output_as in the result)
+        assert entry["output"]["result"]["result"] == "[Foxes] A note about foxes."
 
         log_text = caplog.text
         assert "manager submit" in log_text

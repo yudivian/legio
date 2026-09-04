@@ -54,9 +54,11 @@ class AgentBase:
         *,
         agent_id: str,
         db: AsyncBeaverDB,
+        output_as: str = "",
     ) -> None:
         self._agent_id = agent_id
         self._db = db
+        self._output_as = output_as
         self._queue = db.queue(queue_key(agent_id))
         self._monitor: Monitor | None = None
 
@@ -150,14 +152,17 @@ class AgentBase:
 
         Routing is Schema 2 position-based: while ``current_index + 1`` is inside
         ``level_route`` the outcome advances to ``level_route[current_index + 1]``
-        as an ``ExecutionRequestMessage``; at the end of the level it is
-        deposited to ``end_of_level_queue`` as an ``ExecutionResultMessage`` (the
-        submit's final-result queue at ``level == 1``). The destination is never
-        caller-owned — everything rides in the message (ARCHITECTURE §0/§3).
+        as an ``ExecutionRequestMessage``, **re-keying the produced value** (the
+        agent's ``output_as``) under the next step's ``input_as`` (AGENT_LIFECYCLE
+        §12.1); at the end of the level it is deposited to ``end_of_level_queue``
+        as an ``ExecutionResultMessage`` (the submit's final-result queue at
+        ``level == 1``). The destination is never caller-owned — everything rides
+        in the message (ARCHITECTURE §0/§3).
         """
         next_index = request.current_index + 1
         if next_index < len(request.level_route):
-            next_class = request.level_route[next_index]
+            next_step = request.level_route[next_index]
+            next_class, next_input_as = next_step
             logger.info(
                 "agent advance agent=%s task=%s level=%s to=%s index=%s",
                 self._agent_id,
@@ -174,7 +179,7 @@ class AgentBase:
                 launcher_class=request.launcher_class,
                 task_id=request.task_id,
                 branch_id=request.branch_id,
-                payload=payload,
+                payload=self._rekey(payload, next_input_as),
             )
             await self._deliver(next_class, next_request.model_dump(mode="json"))
             return
@@ -209,6 +214,19 @@ class AgentBase:
     async def _deliver(self, target: str, item: dict[str, Any]) -> None:
         """Put the message onto a queue by name (class or level closer)."""
         await self._db.queue(queue_key(target)).put(dict(item), priority=0.0)
+
+    def _rekey(self, payload: dict[str, Any], next_input_as: str) -> dict[str, Any]:
+        """Re-key the produced payload under the next step's ``input_as``.
+
+        The producer builds ``{output_as: <value>}`` (construction, not
+        accumulation); whoever hands the task to the next agent re-keys that value
+        under the next agent's ``input_as`` (AGENT_LIFECYCLE §12.1). A payload
+        that does not carry the producer's ``output_as`` (an ``error`` result) is
+        passed through unchanged, never swallowed (AGENTS.md rule 9).
+        """
+        if self._output_as and self._output_as in payload:
+            return {next_input_as: payload[self._output_as]}
+        return dict(payload)
 
     async def _handle(
         self, request: ExecutionRequestMessage

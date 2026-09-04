@@ -46,6 +46,8 @@ def build_agent(*, db: AsyncBeaverDB, lingo_client, output_model, agent_id: str 
         lingo_client=lingo_client,
         prompt_template=PROMPT,
         output_model=output_model,
+        input_as="summ",
+        output_as="summ",
     )
 
 
@@ -53,7 +55,7 @@ def crafted_request(
     *,
     task_id: str,
     payload: dict,
-    route: tuple[str, ...] = ("main_a", "summ"),
+    route: tuple[tuple[str, str], ...] = (("main_a", "main_a"), ("summ", "summ")),
     current_index: int = 1,
     end_of_level_queue: str = "main_a",
 ) -> ExecutionRequestMessage:
@@ -75,7 +77,7 @@ async def test_linguistic_agent_returns_structured_output_through_lingo(
     lingo_client = MockLLM(responses=[expected])
     task_id = "T-1"
 
-    request = crafted_request(task_id=task_id, payload={"text": "hello", "lang": "en"})
+    request = crafted_request(task_id=task_id, payload={"summ": {"text": "hello", "lang": "en"}})
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
     agent = build_agent(db=beaver_db, lingo_client=lingo_client, output_model=SummarizeOutput)
@@ -90,7 +92,7 @@ async def test_linguistic_agent_returns_structured_output_through_lingo(
     assert result_item is not None
     result = ExecutionResultMessage.model_validate(result_item)
     assert result.task_id == task_id
-    assert result.payload["summary"] == "A greeting"
+    assert result.payload["summ"]["summary"] == "A greeting"
 
 
 @pytest.mark.asyncio
@@ -101,7 +103,7 @@ async def test_linguistic_agent_templates_input_from_request_payload(
     lingo_client = MockLLM(responses=[expected])
 
     request = crafted_request(
-        task_id="T-input", payload={"text": "request payload", "lang": "en"}
+        task_id="T-input", payload={"summ": {"text": "request payload", "lang": "en"}}
     )
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
@@ -122,8 +124,8 @@ async def test_linguistic_agent_advances_when_not_last_step(
 
     request = crafted_request(
         task_id="T-c",
-        payload={"text": "x", "lang": "en"},
-        route=("summ", "emit"),
+        payload={"summ": {"text": "x", "lang": "en"}},
+        route=(("summ", "summ"), ("emit", "emit")),
         current_index=0,
     )
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
@@ -136,13 +138,13 @@ async def test_linguistic_agent_advances_when_not_last_step(
     assert advanced is not None
     advanced_msg = ExecutionRequestMessage.model_validate(advanced)
     assert advanced_msg.current_index == 1
-    assert advanced_msg.level_route == ("summ", "emit")
+    assert advanced_msg.level_route == (("summ", "summ"), ("emit", "emit"))
     assert advanced_msg.payload == {
-        "text": "x",
-        "lang": "en",
-        "title": "Mid",
-        "summary": "middle step",
-        "word_count": 2,
+        "emit": {
+            "title": "Mid",
+            "summary": "middle step",
+            "word_count": 2,
+        }
     }
 
 
@@ -151,7 +153,7 @@ async def test_linguistic_agent_failure_is_never_silent(beaver_db: AsyncBeaverDB
     """A wrong-typed lingo response yields an error result, never silence."""
     lingo_client = MockLLM(responses=[{"not": "a model"}])
 
-    request = crafted_request(task_id="T-fail", payload={"text": "x", "lang": "en"})
+    request = crafted_request(task_id="T-fail", payload={"summ": {"text": "x", "lang": "en"}})
     await beaver_db.queue(queue_key("summ")).put(request.model_dump(mode="json"), priority=0.0)
 
     agent = build_agent(db=beaver_db, lingo_client=lingo_client, output_model=SummarizeOutput)

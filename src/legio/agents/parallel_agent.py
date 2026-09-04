@@ -63,10 +63,15 @@ class ParallelAgent(AgentBase):
         *,
         agent_id: str,
         db: Any,
-        branches: Sequence[str],
+        branches: Sequence[tuple[str, str]],
+        input_as: str = "",
+        output_as: str = "",
     ) -> None:
-        super().__init__(agent_id=agent_id, db=db)
-        self._branches: list[str] = list(branches)
+        super().__init__(agent_id=agent_id, db=db, output_as=output_as)
+        # Each branch is (class, input_as) — the delivery class and the alias
+        # under which that branch's first step reads (re-keying, §12.1).
+        self._branches: list[tuple[str, str]] = [(c, a) for c, a in branches]
+        self._input_as = input_as
         self._state = db.dict(f"{_STATE_SCOPE}:{agent_id}")
 
     async def _handle(self, request: ExecutionRequestMessage) -> dict[str, Any] | None:
@@ -92,17 +97,21 @@ class ParallelAgent(AgentBase):
             return
 
         slots: dict[str, dict[str, Any]] = {}
-        for index, branch_class in enumerate(self._branches):
+        for index, (branch_class, branch_input_as) in enumerate(self._branches):
             branch_slot = f"{request.task_id}:{self._agent_id}:{index}"
             child = ExecutionRequestMessage(
-                level_route=(branch_class,),
+                level_route=((branch_class, branch_input_as),),
                 current_index=0,
                 end_of_level_queue=self._agent_id,  # gathering queue (collapsed)
                 level=request.level + 1,
                 launcher_class=request.launcher_class,
                 task_id=request.task_id,
                 branch_id=branch_slot,
-                payload=dict(request.payload),
+                payload=(
+                    {branch_input_as: request.payload[self._input_as]}
+                    if self._input_as and self._input_as in request.payload
+                    else dict(request.payload)
+                ),
             )
             logger.info(
                 "parallel fan-out agent=%s task=%s to=%s branch=%s level=%s",
@@ -170,21 +179,25 @@ class ParallelAgent(AgentBase):
         await self._resume_level(record, result_payload)
 
     def _build_branch_payload(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Build the parallel's payload from the incoming payload + each branch
-        result, H3 building the payload (output_as namespacing is LEG-042)."""
-        continuation = record["continuation"]
-        payload = dict(continuation["payload"])
+        """Build the parallel's output from the branch results.
+
+        Each branch produced ``{branch_output_as: value}``; the composite
+        gathers them and **constructs its own payload** under its ``output_as``
+        (AGENT_LIFECYCLE §12.1/§12.4, Session 20): no union, no accumulation.
+        """
+        gathered = {}
         for slot in record["slots"].values():
-            payload = build_payload(payload, slot["result"])
-        return payload
+            gathered.update(dict(slot["result"]))
+        return build_payload(gathered, output_as=self._output_as)
 
     async def _resume_level(
         self, record: dict[str, Any], result_payload: dict[str, Any]
     ) -> None:
         """Resume the parallel's own level via the uniform Schema 2 advance."""
         cont = record["continuation"]
+        route = tuple((step[0], step[1]) for step in cont["level_route"])
         resume = ExecutionRequestMessage(
-            level_route=tuple(cont["level_route"]),
+            level_route=route,
             current_index=cont["current_index"],
             end_of_level_queue=cont["end_of_level_queue"],
             level=cont["level"],

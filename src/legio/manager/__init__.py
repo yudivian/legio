@@ -132,29 +132,32 @@ def _current() -> AsyncBeaverDB:
     return _db
 
 
-async def submit(client_id: str, route: tuple[str, ...], payload: dict[str, Any]) -> str:
+async def submit(client_id: str, route: tuple[tuple[str, str], ...], payload: dict[str, Any]) -> str:
     """Submit a task; returns its ``task_id``.
 
     The caller provides the starting pattern's level-1 route (derived from the
-    pattern catalog via ``starting_route``), creates the task's final-result
-    queue, stages the inputs on the ``tasks`` dictionary and deposits the first
-    ``ExecutionRequestMessage`` (the root step, Schema 2 token with
-    ``end_of_level_queue`` = final-result queue) into the first agent's queue.
-    From there the flow is fully decoupled: agents poll their own queues and
-    route by the token. The manager never resolves the DAG — the route is
-    provided by the caller (derived from the pattern catalog).
+    pattern catalog via ``starting_route``): a tuple of ``(class, input_as)``
+    pairs. The submit **re-keys the client payload under the starting agent's
+    ``input_as``** (`route[0][1]`, AGENT_LIFECYCLE §12.1), creates the task's
+    final-result queue, stages the inputs on the ``tasks`` dictionary and
+    deposits the first ``ExecutionRequestMessage`` (the root step, Schema 2
+    token with ``end_of_level_queue`` = final-result queue) into the first
+    agent's queue. From there the flow is fully decoupled: agents poll their own
+    queues and route by the token. The manager never resolves the DAG — the route
+    is provided by the caller (derived from the pattern catalog).
     """
     if not route:
         raise ValueError("route must contain at least one agent")
     task_id = _new_task_id()
-    first_agent = route[0]
+    first_class, first_input_as = route[0]
     result_queue = result_queue_key(task_id)
+    rekeyed_payload = {first_input_as: payload}
     token = FlowToken(
         level_route=route,
         current_index=0,
         end_of_level_queue=result_queue,
         level=1,
-        launcher_class=first_agent,
+        launcher_class=first_class,
         task_id=task_id,
         root=True,
     )
@@ -165,7 +168,7 @@ async def submit(client_id: str, route: tuple[str, ...], payload: dict[str, Any]
             "owner": client_id,
             "state": TaskState.PENDING,
             "token": token.model_dump(mode="json"),
-            "payload": payload,
+            "payload": rekeyed_payload,
         },
     )
 
@@ -174,16 +177,16 @@ async def submit(client_id: str, route: tuple[str, ...], payload: dict[str, Any]
         current_index=0,
         end_of_level_queue=result_queue,
         level=1,
-        launcher_class=first_agent,
+        launcher_class=first_class,
         task_id=task_id,
-        payload=payload,
+        payload=rekeyed_payload,
     )
-    await agent_queue(first_agent).put(request.model_dump(mode="json"), priority=0.0)
+    await agent_queue(first_class).put(request.model_dump(mode="json"), priority=0.0)
     logger.info(
         "manager submit task=%s owner=%s route=%s result_queue=%s",
         task_id,
         client_id,
-        ",".join(route),
+        ",".join(c for c, _ in route),
         result_queue,
     )
     return task_id

@@ -39,6 +39,8 @@ def build_flip_agent(db: AsyncBeaverDB) -> ToolAgent:
         available_tools=registry,
         tool_name="flip",
         parameters={"text": "{text}"},
+        input_as="flip",
+        output_as="flip",
     )
 
 
@@ -69,7 +71,7 @@ async def test_submit_creates_task_and_status_returns_it(
     assert entry["owner"] == "client-a"
     assert entry["token"]["root"] is True
     assert entry["token"]["level"] == 1
-    assert entry["token"]["level_route"] == ["flow_alpha"]
+    assert entry["token"]["level_route"] == [["flow_alpha", "flow_alpha"]]
 
 
 @pytest.mark.asyncio
@@ -108,7 +110,7 @@ async def test_submit_missing_fields_is_rejected(
 async def test_agent_loop_deposits_message_to_completion(
     beaver_db: AsyncBeaverDB,
 ) -> None:
-    task_id = await submit("client-a", ("flip",), {"text": "abc"})
+    task_id = await submit("client-a", (("flip", "flip"),), {"text": "abc"})
 
     agent = build_flip_agent(beaver_db)
 
@@ -117,4 +119,4 @@ async def test_agent_loop_deposits_message_to_completion(
 
     entry = await status(task_id, "client-a")
     assert entry.state.value == "completed"
-    assert entry.output == {"text": "abc", "flipped": "cba"}
+    assert entry.output == {"flip": {"flipped": "cba"}}

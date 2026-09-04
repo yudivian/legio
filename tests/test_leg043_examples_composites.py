@@ -205,6 +205,8 @@ def build_sequence_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
         lingo_client=lingo_client,
         prompt_template="Extract the key points of {text} in {lang}.",
         output_model=ExtractOutput,
+        input_as="payload",
+        output_as="extract",
     )
     assess = ToolAgent(
         agent_id="assess",
@@ -212,18 +214,28 @@ def build_sequence_agents(db: AsyncBeaverDB) -> tuple[LinguisticAgent, ToolAgent
         available_tools=registry,
         tool_name="assess",
         parameters={"title": "{title}", "summary": "{summary}"},
+        input_as="extract",
+        output_as="result",
     )
     return extract, assess
 
 
 def build_parallel_agents(db: AsyncBeaverDB) -> tuple[ParallelAgent, LinguisticAgent, LinguisticAgent]:
-    par = ParallelAgent(agent_id="distribute_summary", db=db, branches=["summ", "cata"])
+    par = ParallelAgent(
+        agent_id="distribute_summary",
+        db=db,
+        branches=[("summ", "text"), ("cata", "text")],
+        input_as="payload",
+        output_as="result",
+    )
     summ = LinguisticAgent(
         agent_id="summ",
         db=db,
         lingo_client=MockLLM(responses=[SummOutput(summ="a summary")]),
         prompt_template="Summarize: {text}",
         output_model=SummOutput,
+        input_as="text",
+        output_as="summ",
     )
     cata = LinguisticAgent(
         agent_id="cata",
@@ -231,6 +243,8 @@ def build_parallel_agents(db: AsyncBeaverDB) -> tuple[ParallelAgent, LinguisticA
         lingo_client=MockLLM(responses=[CataOutput(cata="a category")]),
         prompt_template="Categorize: {text}",
         output_model=CataOutput,
+        input_as="text",
+        output_as="cata",
     )
     return par, summ, cata
 
@@ -269,7 +283,7 @@ async def test_extract_and_summarize_sequence_over_rest(
         entry = status_resp.json()
         assert entry["state"] == "completed"
         assert entry["result_key"] == result_queue_key(task_id)
-        assert entry["output"]["result"] == "[Foxes] A note about foxes."
+        assert entry["output"]["result"]["result"] == "[Foxes] A note about foxes."
 
 
 @pytest.mark.asyncio
@@ -312,5 +326,6 @@ async def test_distribute_summary_parallel_root_over_rest(
         entry = status_resp.json()
         assert entry["state"] == "completed"
         assert entry["result_key"] == result_queue_key(task_id)
-        assert entry["output"]["summ"] == "a summary"
-        assert entry["output"]["cata"] == "a category"
+        # the joined branches are gathered under the parallel's output_as "result"
+        assert entry["output"]["result"]["summ"]["summ"] == "a summary"
+        assert entry["output"]["result"]["cata"]["cata"] == "a category"
