@@ -49,10 +49,10 @@ including `schema_version`, the per-level token fields and the flow-end rule.
 - **Composite (branching):** a composite class on receiving its request does not
   advance while its branches run; it fans out giving each branch its
   loader-resolved `level_route` and `current_index = 0`, incrementing `level`
-  (+1), and **autogenerating a fresh, unique `branch_id`** for each branch
-  (independent — no parent-derived naming; distinct from its own and from every
-  other branch across all levels, to avoid name collisions; constant along the
-  branch's sequence, carried on the message). Branches return to the composite's
+  (+1), and   **autogenerating a fresh, unique `branch_id`** for each branch (a `uuid.uuid4()`,
+  the same stdlib as `task_id` — independent, no parent-derived naming; distinct
+  from its own and from every other branch across all levels, to avoid name
+  collisions; constant along the branch's sequence, carried on the message). Branches return to the composite's
   **gathering queue** via their `end_of_level_queue`;
   the returning result's `branch_id` names the join slot.
   On fan-in completion the composite decrements `level` (−1) and resumes its own
